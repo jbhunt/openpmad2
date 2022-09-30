@@ -50,7 +50,7 @@ class StaticGratingWithProbe():
                 gabor.draw()
                 self.display.flip()
             gabor.contrast = probeContrast
-            self.display.flashSignalPatch(3)
+            self.display.signalEvent(3, units='frames')
             self.metadata.append([trialNumber, clock.getTime()])
             for frameIndex in range(round(probeDuration * self.display.fps)):
                 gabor.draw()
@@ -89,5 +89,91 @@ class StaticGratingWithProbe():
 
         # Delete metadata
         self.metadata = None
+
+        return
+
+class StaticGratingWithVariableProbe():
+    """
+    """
+
+    def __init__(self, display):
+        self.display = display
+        self.metadata = None
+        return
+
+    def present(
+        self,
+        spatialFrequency=0.08,
+        probeDuration=0.5,
+        probeContrastLevels=(0.01, 0.02, 0.03, 0.05, 0.1),
+        baselineContrastLevel=0.5,
+        interProbeIntervalRange=(5, 10),
+        trialCount=5,
+        ):
+
+        #
+        clock = core.MonotonicClock()
+        self.metadata = np.full([trialCount, 3], np.nan)
+        self.metadata[:, 0] = np.arange(1, trialCount + 1, 1)
+        self.metadata[:, 1] = np.random.choice(probeContrastLevels, trialCount)
+        self.metadata[:, 1] += baselineContrastLevel
+
+        cpp = spatialFrequency / self.display.ppd # cycles per pixel
+        gabor = visual.GratingStim(
+            self.display,
+            size=self.display.size,
+            units='pix',
+            sf=cpp,
+            contrast=baselineContrastLevel,
+        )
+
+        #
+        gabor.draw()
+        self.display.flip()
+        for trialIndex, probeContrastLevel in enumerate(self.metadata[:, 1]):
+            interProbeInterval = np.random.randint(
+                round(interProbeIntervalRange[0] * self.display.fps),
+                round(interProbeIntervalRange[1] * self.display.fps),
+                1
+            ).item()
+            for frameIndex in range(interProbeInterval):
+                gabor.draw()
+                self.display.flip()
+            gabor.contrast = probeContrastLevel
+            self.display.signalEvent(3, units='frames')
+            self.metadata[trialIndex, -1] = clock.getTime()
+            for frameIndex in range(round(probeDuration * self.display.fps)):
+                gabor.draw()
+                self.display.flip()
+            gabor.contrast = baselineContrastLevel
+
+        #
+        for frameIndex in range(round(3 * self.display.fps)):
+            gabor.draw()
+            self.display.flip()
+
+        #
+        self.display.clearStimuli()
+        self.metadata = np.array(self.metadata)
+
+        return None
+
+    def saveMetadata(self, sessionFolder):
+        """
+        """
+
+        sessionFolderPath = pl.Path(sessionFolder)
+
+        if self.metadata is None:
+            return
+
+        if sessionFolderPath.exists() == False:
+            sessionFolderPath.mkdir()
+
+        filename = str(sessionFolderPath.joinpath('staticGratingWithProbeMetadata.txt'))
+        with open(filename, 'w') as stream:
+            stream.write(f'Trial number, Probe contrast, Timestamp\n')
+            for trialNumber, probeContrast, timestamp in self.metadata:
+                stream.write(f'{trialNumber:.0f}, {probeContrast:.3f}, {timestamp:.3f}\n')
 
         return

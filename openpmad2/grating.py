@@ -1,317 +1,110 @@
 import numpy as np
 import pathlib as pl
 from itertools import product
-from psychopy.visual import GratingStim, ImageStim
+from psychopy.visual import GratingStim
 from datetime import datetime as dt
 from . import bases
-from . import warping
-from . import writing
-from . import constants
 
-class OrientedDriftingGratingMovie(bases.Stimulus):
+class DirectionSelectivityProtocol(bases.StimulusBase):
     """
     """
 
-    def __init__(
-        self,
-        display,
-        frequency=0.1, # cycles / degree
-        velocity=25, # degrees / second
-        orientations=[45], # degrees
-        duration=3,
-        repeats=1,
-        static=0.5, # seconds
-        iti=1, # seconds
-        ):
+    def __init__(self, display):
         """
         """
-
         super().__init__(display)
-
-        self._frequency = frequency
-        self._orientations = orientations
-        self._duration = duration
-        self._velocity = velocity
-        self._repeats = repeats
-        self._static = static
-        self._iti = iti
-
+        self.metadata = None
+        self._temporalFrequency = None
         return
 
-    def construct(self, online=True, filename=None, metadata=None, prestimulus=1):
-        """
-        """
-
-        #
-        if filename is not None:
-            writer = writing.SKVideoVideoWriterWrapper(self.display, filename)
-            self._movie = filename
-
-        if metadata is not None:
-            opened = open(metadata, 'w')
-            opened.write(f'Spatial frequency: {self.frequency} cycles / degree\n')
-            opened.write(f'Velocity: {self.velocity} degrees / second\n')
-            opened.write(f'Motion duration: {self.duration}\n')
-            opened.write(f'Orientation, Direction\n')
-
-        #
-        cpp = self.frequency / self.ppda # cycles per pixel
-        cpf = self.frequency * self.velocity / self.display.fps #
-        ppc = 1 / cpp
-
-        #
-        warper = warping.SignaledAndWarpedStim(self.display)
-        grating = GratingStim(self.display, units='pix')
-        hypotenuse = np.sqrt(self.display.width ** 2 + self.display.width ** 2)
-        grating.size = (hypotenuse, hypotenuse)
-        grating.sf = cpp
-
-        #
-        combos = np.repeat(
-            np.array(list(product(self.orientations, [-1, +1]))),
-            self.repeats,
-            axis=0
-        )
-        np.random.shuffle(combos)
-
-        # Short pre-stimulus epoch
-        self.display.background.state = False
-        self.display.background.draw()
-        warped = self.display.getMovieFrame()
-        for iframe in range(int(np.ceil(prestimulus * self.display.fps))):
-            if online:
-                self.display.background.draw()
-                self.display.flip()
-            if filename is not None:
-                writer.write(warped)
-
-        #
-        for orientation, direction in combos:
-
-            if metadata is not None:
-                human_readable_direction = 'Left' if direction == -1 else 'Right'
-                opened.write(f'{orientation}, {human_readable_direction}\n')
-
-            # Set orientation
-            grating.ori = orientation
-
-            # Present grating static for 1 second
-            grating.draw()
-            frame = self.display.getMovieFrame()
-            warper.array = frame
-            warper.state = True
-            for iframe in range(int(np.ceil(self.static * self.display.fps))):
-                if iframe == 2:
-                    warper.state = False
-                warper.draw()
-                warped = self.display.getMovieFrame(clear=False)
-                if online:
-                    self.display.flip()
-                if filename is not None:
-                    writer.write(warped)
-
-            # Present grating motion
-            grating.phase = 0
-            warper.state = True
-            for iframe in range(int(np.ceil(self.duration * self.display.fps))):
-                if iframe == 2:
-                    warper.state = False
-                grating.phase = (iframe + 1) * cpf * direction
-                grating.draw()
-                frame = self.display.getMovieFrame()
-                warper.array = frame
-                warper.draw()
-                warped = self.display.getMovieFrame(clear=False)
-                if filename is not None:
-                    writer.write(warped)
-                if online:
-                    self.display.flip()
-
-            # ITI
-
-            # Signal on
-            self.display.background.state = True
-            self.display.background.draw()
-            warped = self.display.getMovieFrame()
-            for iframe in range(2):
-                if online:
-                    self.display.background.draw()
-                    self.display.flip()
-                if filename is not None:
-                    writer.write(warped)
-
-            # Signal off
-            self.display.background.state = False
-            self.display.background.draw()
-            warped = self.display.getMovieFrame()
-            for iframe in range(int(np.ceil(self.iti * self.display.fps)) - 2):
-                if online:
-                    self.display.background.draw()
-                    self.display.flip()
-                if filename is not None:
-                    writer.write(warped)
-
-        if filename is not None:
-            writer.close()
-
-        if metadata is not None:
-            opened.close()
-
-        return
-
-    @property
-    def frequency(self):
-        return self._frequency
-
-    @property
-    def orientations(self):
-        return self._orientations
-
-    @property
-    def velocity(self):
-        return self._velocity
-
-    @property
-    def repeats(self):
-        return self._repeats
-
-    @property
-    def duration(self):
-        return self._duration
-
-    @property
-    def static(self):
-        return self._static
-
-    @property
-    def iti(self):
-        return self._iti
-
-class OrientedDriftingGrating():
-    """
-    """
-
-    def __init__(
+    def present(
         self,
-        display,
-        frequency=0.08, # cycles / degree
-        velocity=50, # degrees / second
-        orientations=[45], # degrees
-        duration=2,
-        repeats=3,
-        tstatic=1, # seconds
-        iti=1, # seconds
+        orientations=np.linspace(0, 360, 9),
+        spatialFrequencies=np.logspace(np.log10(0.01), np.log10(0.32), 6),
+        temporalFrequency=2,
+        stimulusDuration=2,
+        itiDuration=1,
+        repeats=1,
+        warmupDuration=5,
         ):
         """
         """
 
-        self._display = display
-        self._frequency = frequency
-        self._orientations = orientations
-        self._duration = duration
-        self._velocity = velocity
-        self._repeats = repeats
-        self._tstatic = tstatic
-        self._iti = iti
-
-        return
-
-    def present(self, warmup=1):
-        """
-        """
+        self._temporalFrequency = temporalFrequency
 
         #
-        cpp = self.frequency / self.display.ppd # cycles per pixel
-        cpf = self.frequency * self.velocity / self.display.fps #
-        ppc = 1 / cpp
-
-        #
-        grating = GratingStim(self.display, units='pix')
         hypotenuse = np.sqrt(self.display.width ** 2 + self.display.width ** 2)
-        grating.size = (hypotenuse, hypotenuse)
-        grating.sf = cpp
+        gabor = GratingStim(self.display, units='pix', size=hypotenuse)
 
         #
-        image = np.full([self.display.height, self.display.width], 0).astype(np.float64)
-        background = ImageStim(
-            self.display,
-            image=image,
-            size=self.display.size,
-            units='pix',
-        )
+        N = len(spatialFrequencies) * len(orientations) * 2 * repeats
+        self.metadata = np.full([N, 3], np.nan)
+        trialIndex = 0
+        for i in range(repeats):
+            block = np.array(list(product(spatialFrequencies, orientations, [-1, 1])))
+            np.random.shuffle(block)
+            for entry in block:
+                self.metadata[trialIndex, :] = entry
+                trialIndex += 1
 
-        #
-        combos = np.repeat(
-            np.array(list(product(self.orientations, [-1, 1]))),
-            self.repeats,
-            axis=0
-        )
-        np.random.shuffle(combos)
+        # How long will the stimulus last?
+        totalStimulusTime = N * (stimulusDuration + itiDuration) + warmupDuration
+        totalStimulusTime /= 60
+        # print(f'Stimulus duration estimate: ~{totalStimulusTime:.2f} minutes')
 
-        # Pre-stimulus epoch
-        self.display.wait(warmup)
+        # Warmup period
+        self.display.idle(warmupDuration, units='seconds')
 
-        #
-        for orientation, direction in combos:
+        # Main loop
+        for spatialFrequency, orientation, direction in self.metadata:
 
             #
-            grating.ori = orientation
+            cpp = spatialFrequency / self.display.ppd
+            dps = temporalFrequency / spatialFrequency
+            cpf = spatialFrequency * dps / self.display.fps
 
             #
-            self.display.state = True
-            for iframe in range(int(np.ceil(self.display.fps * self.tstatic))):
-                if iframe == constants.N_SIGNAL_FRAMES:
-                    self.display.state = False
-                grating.draw()
+            gabor.sf = cpp
+            gabor.ori = orientation
+
+            #
+            self.display.signalEvent(3, units='frames')
+            for frameIndex in range(round(self.display.fps * stimulusDuration)):
+                gabor.phase += cpf * direction
+                gabor.draw()
                 self.display.flip()
 
             #
-            self.display.state = True
-            for iframe in range(int(np.ceil(self.display.fps * self.duration))):
-                if iframe == constants.N_SIGNAL_FRAMES:
-                    self.display.state = False
-                grating.phase += direction * cpf
-                grating.draw()
-                self.display.flip()
-
-            #
-            self.display.state = True
-            for iframe in range(int(np.ceil(self.display.fps * self.iti))):
-                if iframe == constants.N_SIGNAL_FRAMES:
-                    self.display.state = False
-                background.draw()
-                self.display.flip()
+            self.display.signalEvent(3, units='frames')
+            self.display.idle(itiDuration, units='seconds')
 
         return
 
-    @property
-    def display(self):
-        return self._display
+    def saveMetadata(self, sessionFolder, headerSize=2):
+        """
+        """
 
-    @property
-    def frequency(self):
-        return self._frequency
+        sessionFolderPath = super().saveMetadata(sessionFolder)
+        fullFilePath = sessionFolderPath.joinpath(f'directionalGratingMetadata.txt')
 
-    @property
-    def orientations(self):
-        return self._orientations
+        #
+        lines = None
+        if fullFilePath.exists():
+            with open(fullFilePath, 'r') as stream:
+                lines = stream.readlines()
 
-    @property
-    def velocity(self):
-        return self._velocity
+        with open(fullFilePath, 'w') as stream:
+            if self._temporalFrequency is None:
+                value = '?'
+            else:
+                value = self._temporalFrequency
+            stream.write(f'Temporal frequency={value} Hz\n')
+            stream.write(f'Spatial frequency (cycles/degree), Orientation (degrees), Direction (-1, 1)\n')
+            if lines is not None:
+                for line in lines[headerSize:]:
+                    stream.write(line)
+            for spatialFrequency, orientation, direction in self.metadata:
+                line = f'{spatialFrequency:.2f}, {orientation:.0f}, {direction:.0f}\n'
+                stream.write(line)
 
-    @property
-    def repeats(self):
-        return self._repeats
-
-    @property
-    def duration(self):
-        return self._duration
-
-    @property
-    def tstatic(self):
-        return self._tstatic
-
-    @property
-    def iti(self):
-        return self._iti
+        return

@@ -5,6 +5,7 @@ import matplotlib as mpl
 from matplotlib import pylab as plt
 from matplotlib.widgets import Button
 from . import warping
+from psychopy import visual, event
 
 # Unbind the S key
 try:
@@ -13,6 +14,181 @@ try:
     mpl.rcParams['keymap.forward'].remove('right')
 except ValueError as error:
     pass
+
+def collectGridPoints(
+    screen=1,
+    size=[1280,720],
+    shiftGain=10,
+    markerInitPosition=(100, -140),
+    gridShape=(11, 19)
+    ):
+    """
+    Define the physical grid in pixel space
+
+    Instructions
+    ------------
+    For each point of intersection within the grid, center the crosshair marker
+    over the intersection, then press enter. If you'd like to reposition the
+    marker, you can press Ctrl+Z to undo your selection. When you are done
+    collecting the position of each grid point, press Shift+Enter to exit the
+    function and return the grid (sorted by y position, then x position).
+    """
+
+    # create the crosshair marker
+    win = visual.Window(screen=screen, size=size, fullscr=True)
+    marker = visual.ShapeStim(
+        win,
+        vertices=[(-5,0), (5,0), (0,0), (0,-5), (0,5)],
+        closeShape=False,
+        lineWidth=1,
+        lineColor='black',
+        fillColor='black',
+        units='pix'
+    )
+    marker.pos = markerInitPosition
+    marker.draw()
+    win.flip()
+
+    # initialize empty lists
+    dots = list()
+    points = list()
+
+    # main loop
+    while True:
+
+        # read keyboard buffer
+        keys = event.getKeys(keyList=['left', 'right', 'up', 'down', 'return', 'z'], modifiers=True)
+
+        # wait for input
+        if len(keys) > 0:
+            for (key, modifiers) in keys:
+
+                # move the marker
+                if key in ['left', 'right', 'up', 'down']:
+
+                    # define the translation
+                    dxy = 1 * shiftGain if modifiers['ctrl'] else 1
+                    translation = [0, 0]
+                    if key == 'left'  : translation[0] += dxy
+                    if key == 'right' : translation[0] -= dxy
+                    if key == 'up'    : translation[1] += dxy
+                    if key == 'down'  : translation[1] -= dxy
+
+                    # compute the new center coordinates
+                    cold = marker.pos
+                    cnew = (np.array(cold) + np.array(translation)).tolist()
+                    marker.pos = cnew
+                    print(f'Marker position: {marker.pos}')
+
+                    # draw all elements
+                    for dot in dots:
+                        dot.draw()
+                    marker.draw()
+                    win.flip()
+
+                # undo the last selection
+                if key == 'z' and modifiers['ctrl']:
+                    try:
+                        point = points.pop(-1)
+                        dot = dots.pop(-1)
+                        for dot in dots:
+                            dot.draw()
+                        marker.draw()
+                        win.flip()
+                        print(f'Point removed: {point}')
+                    except:
+                        pass
+
+                # save point
+                if key == 'return' and not modifiers['ctrl']:
+                    dot = visual.Circle(win, pos=marker.pos, fillColor='Red', lineColor='Red', size=3, units='pix')
+                    dots.append(dot)
+                    points.append(marker.pos)
+                    for dot in dots:
+                        dot.draw()
+                    marker.draw()
+                    win.flip()
+                    print(f'Point saved: {marker.pos}')
+
+                # exit and return the grid
+                if key == 'return' and modifiers['shift']:
+                    while True:
+                        answer = input(f'Are you sure you want to exit? (y/n)\n')
+                        if answer not in ('y', 'n'):
+                            print(f'{answer} is not a valid answer')
+                            continue
+                        elif answer == 'n':
+                            break
+                        else:
+                            nPoints = gridShape[0] * gridShape[1]
+                            win.close()
+                            points = np.array(points)
+                            if points.shape[0] != gridShape[0] * gridShape[1]:
+                                for i in range(int(nPoints - points.shape[0])):
+                                    points = np.vstack([points, [np.nan, np.nan]])
+                            return points    
+                            grid = points.reshape(*gridShape, 2)
+                            return grid
+
+    return
+
+def createWarpfile(destinationCoordinates, filepath, displayShape=(720, 1280)):
+    """
+    """
+
+    displayHeight, displayWidth = displayShape
+    aspectRatio = displayWidth / displayHeight
+    nRows, nColumns = destinationCoordinates.shape[:2]
+    nPoints = int(nRows * nColumns)
+
+    # Create the grid of source coordinates
+    sourceCoordinates = np.dstack(np.meshgrid(
+        np.arange(nColumns),
+        np.arange(nRows)
+    )).reshape(nPoints, 2)
+    x = sourceCoordinates[:, 0] / sourceCoordinates[:, 0].max()
+    y = sourceCoordinates[:, 1] / sourceCoordinates[:, 1].max()
+    sourceCoordinatesNormed = np.hstack([x.reshape(-1, 1), y.reshape(-1, 1)])
+
+    #
+    destinationCoordinates = destinationCoordinates.reshape(nPoints, 2)
+    x = np.interp(destinationCoordinates[:, 0], (-1 * displayWidth / 2, displayWidth / 2), (-aspectRatio, aspectRatio)) / aspectRatio
+    y = np.interp(destinationCoordinates[:, 1], (-1 * displayHeight / 2, displayHeight / 2), (-1, 1))
+    destinationCoordinatesNormed = np.hstack([
+        x.reshape(-1, 1),
+        y.reshape(-1, 1)
+    ])
+
+    #
+    header = (
+        f'2\n',
+        f'{nColumns:.0f} {nRows:.0f}\n'
+    )
+    data = np.ones([nPoints, 5])
+    data[:, 0:2] = destinationCoordinatesNormed
+    data[:, 2:4] = sourceCoordinatesNormed
+    with open(filepath, 'w') as stream:
+        for line in header:
+            stream.write(line)
+        for x1, y1, x2, y2, a in data:
+            line = f'{x1} {y1} {x2} {y2} {a}\n'
+            stream.write(line)
+            
+    return
+
+def loadWarpfile(filepath):
+    """
+    """
+
+    with open(filepath, 'r') as stream:
+        lines = stream.readlines()
+
+    data = list()
+    for line in lines[2:]:
+        x1, y1, x2, y2, a = line.split()
+        data.append(list(map(float, [x1, y1, x2, y2])))
+
+    return np.around(np.array(data), 3)
 
 def load_sample_image(tag='horizontal-sinusoid-grating'):
     """

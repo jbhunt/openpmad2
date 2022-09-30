@@ -45,7 +45,7 @@ def load_tform_data(display='DLPLightCrafter3010', date='2022-02-02', dst=None):
 
 load_tform_data()
 
-def load_wfile_data(date='2022-02-07'):
+def load_wfile_data(date='2022-08-25'):
     """
     Set the warpfile filepath global variable
     """

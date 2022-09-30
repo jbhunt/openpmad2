@@ -1,30 +1,51 @@
-class Stimulus():
+import pathlib as pl
+
+headerBreakLine = '-' * 40 + '\n'
+
+class StimulusBase():
     """
     """
 
     def __init__(self, display):
-        """
-        """
-
-        self._display = display
-        self._ppda = self.display.width / self.display.azimuth
-        self._ppde = self.display.height / self.display.elevation
-        self._movie = None
-
+        self.display = display
+        self.metadata = None
+        self.header = None
         return
 
-    @property
-    def display(self):
-        return self._display
+    def prepareMetadataStream(self, sessionFolder, filename, header):
+        """
+        """
 
-    @property
-    def ppda(self):
-        return self._ppda
+        if self.metadata is None:
+            return
 
-    @property
-    def ppde(self):
-        return self._ppde
+        #
+        sessionFolderPath = pl.Path(sessionFolder)
+        if sessionFolderPath.exists() == False:
+            sessionFolderPath.mkdir()
 
-    @property
-    def movie(self):
-        return self._movie
+        #
+        fullFilePath = sessionFolderPath.joinpath(f'{filename}.txt')
+
+        #
+        data = None
+        if fullFilePath.exists():
+            with open(fullFilePath, 'r') as stream:
+                lines = stream.readlines()
+            for lineIndex, line in enumerate(lines):
+                if line == headerBreakLine:
+                    break
+            data = lines[lineIndex + 1:]
+
+        #
+        stream = open(fullFilePath, 'w')
+        for key, value in header.items():
+            stream.write(f'{key}: {value}\n')
+        stream.write(headerBreakLine)
+
+        #
+        if data is not None:
+            for datum in data:
+                stream.write(datum)
+
+        return stream

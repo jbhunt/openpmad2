@@ -1,13 +1,9 @@
+from email.policy import default
 import numpy as np
 import pathlib as pl
 import multiprocessing as mp
 from psychopy import visual
-from openpmad2 import warping
-from openpmad2 import writing
-from openpmad2 import testing
-from openpmad2 import helpers
-from openpmad2 import constants
-from openpmad2.displays import WarpedWindow
+from . import bases
 
 class StateManager():
     """
@@ -191,14 +187,13 @@ class DriftingGratingWithRealTimeProbe():
 
     def present(
         self,
-        tdelay=None,
         warmup=1,
         timeout=3,
         tprobe=0.05,
         tmargin=3,
-        isirange=(1, 3),
+        isirange=(0.5, 1),
         presentRandomProbes=True,
-        presentFictiveSaccades=True,
+        presentFictiveSaccades=False,
         fictiveSaccadeDuration=0.06,
         fictiveSaccadeVelocity=300,
         foreperiodSample=None,
@@ -248,7 +243,8 @@ class DriftingGratingWithRealTimeProbe():
             int(np.ceil(self.display.fps * self.iti) * ntrials)
         )
         timestamps = np.full(nframes, np.nan)
-        eventTimestamps = np.full(5000, np.nan)
+        eventTimestamps = np.full(defaultMetadataSize, np.nan)
+        motionDirection = np.full(defaultMetadataSize, np.nan)
 
         # State manager
         manager = StateManager()
@@ -298,6 +294,11 @@ class DriftingGratingWithRealTimeProbe():
 
             # Motion onset
             # self.display.state = True
+            self.display.signalEvent(3, units='frames')
+            metadata[ipresent] = f'motionOnset'
+            eventTimestamps[ipresent] = -1.0
+            motionDirection[ipresent] = direction
+            ipresent += 1
             for iframe in range(int(np.ceil(self.display.fps * self.duration))):
 
                 #
@@ -378,6 +379,7 @@ class DriftingGratingWithRealTimeProbe():
                                     self.display.state = True
                                     countdown = 0
                                     metadata[ipresent] = 'randomProbe'
+
                                 ipresent += 1
 
                             # Restart countdown
@@ -396,7 +398,7 @@ class DriftingGratingWithRealTimeProbe():
                         gabor.contrast = 1
                         # self.display.state = True
                         countdown = int(np.ceil(self.display.fps * tprobe))
-                        self.display.flashSignalPatch(frameCount=countdown)
+                        self.display.signalEvent(countdown, units='frames')
 
                 # Perisaccadic probe presentation
                 elif manager.presentingPerisaccadicProbe:
@@ -460,6 +462,11 @@ class DriftingGratingWithRealTimeProbe():
 
             # ITI
             # self.display.state = True
+            self.display.signalEvent(3, units='frames')
+            metadata[ipresent] = f'motionOffset'
+            eventTimestamps[ipresent] = -1.0
+            motionDirection[ipresent] = direction
+            ipresent += 1
             for iframe in range(int(np.ceil(self.display.fps * self.iti))):
                 # if iframe == constants.N_SIGNAL_FRAMES:
                 #     self.display.state = False
@@ -469,7 +476,8 @@ class DriftingGratingWithRealTimeProbe():
         #
         metadata = metadata[[len(s) > 0 for s in metadata]]
         eventTimestamps = eventTimestamps[~np.isnan(eventTimestamps)]
-        self.metadata = list(zip(metadata, eventTimestamps))
+        motionDirection = motionDirection[~np.isnan(motionDirection)]
+        self.metadata = list(zip(metadata, motionDirection, eventTimestamps))
 
         #
         if returnStateValues:
@@ -489,8 +497,374 @@ class DriftingGratingWithRealTimeProbe():
             return
 
         with open(sessionFolderPath.joinpath('realtimeGratingMetadata.txt'), 'w') as stream:
-            stream.write(f'Event, Timestamp (seconds)\n')
-            for event, timestamp in self.metadata:
-                stream.write(f'{event}, {timestamp:.3f}\n')
+            stream.write(f'Event, Motion, Timestamp (seconds)\n')
+            for event, direction, timestamp in self.metadata:
+                if timestamp == -1.0:
+                    timestamp = np.nan
+                stream.write(f'{event}, {direction:.0f}, {timestamp:.3f}\n')
+
+        return
+
+class DriftingGratingWithRandomProbe(bases.StimulusBase):
+    """
+    """
+
+    def present(
+        self,
+        spatialFrequency=0.15,
+        velocity=12,
+        baselineContrast=0.4,
+        probeContrast=1,
+        probeDuration=0.1,
+        ipiRange=(0.5, 1),
+        itiDuration=5,
+        trialCount=1,
+        directions=(-1, 1),
+        staticPhaseDuration=3,
+        motionPhaseDuration=5,
+        bufferPhaseDuration=1,
+        metadataArraySize=100000,
+        ):
+        """
+        """
+
+        self.header = {
+            f'Spatial frequency': f'{spatialFrequency} (cycles/degree)',
+            f'Velocity': f'{velocity} (degrees/second)',
+            f'Baseline contrast': f'{baselineContrast} (0, 1)',
+            f'Probe contrast': f'{probeContrast} (0, 1)'
+        }
+
+        #
+        cpp = spatialFrequency / self.display.ppd # cycles per pixel
+        cpf = spatialFrequency * velocity / self.display.fps
+        gabor = visual.GratingStim(
+            self.display,
+            size=self.display.size,
+            units='pix',
+            sf=cpp,
+            contrast=baselineContrast,
+        )
+
+        #
+        self.metadata = np.full([metadataArraySize, 3], np.nan)
+        trialParameters = np.tile(directions, trialCount)
+        np.random.shuffle(trialParameters)
+        inIPI = False
+        recordEvent = False
+        eventIndex = 0
+        countdown = 0
+
+        #
+        self.display.idle(itiDuration, units='seconds')
+
+        for direction in trialParameters:
+
+            # Static phase
+            self.display.signalEvent(3, units='frames')
+            for frameIndex in range(round(self.display.fps * staticPhaseDuration)):
+                gabor.draw()
+                timestamp = self.display.flip()
+                if frameIndex == 0:
+                    self.metadata[eventIndex, :] = (1, direction, timestamp)
+                    eventIndex += 1
+
+            # Motion (buffer) phase
+            self.display.signalEvent(3, units='frames')
+            for frameIndex in range(round(self.display.fps * bufferPhaseDuration)):
+                gabor.phase += cpf * direction
+                gabor.draw()
+                timestamp = self.display.flip()
+                if frameIndex == 0:
+                    self.metadata[eventIndex, :] = (2, direction, timestamp)
+                    eventIndex += 1
+
+            # Motion phase
+            for frameIndex in range(round(self.display.fps * motionPhaseDuration)):
+
+                if inIPI:
+                    if countdown == 0:
+                        inIPI = False
+                        countdown = round(self.display.fps * probeDuration)
+                        self.display.signalEvent(countdown, units='frames')
+                        gabor.contrast = probeContrast
+                        recordEvent = True
+
+                else:
+                    if countdown == 0:
+                        inIPI = True
+                        interval = np.random.uniform(*ipiRange, size=1).item()
+                        countdown = round(self.display.fps * interval)
+                        gabor.contrast = baselineContrast
+
+                #
+                countdown -= 1
+
+                #
+                gabor.phase += cpf * direction
+                gabor.draw()
+                timestamp = self.display.flip()
+                if recordEvent:
+                    self.metadata[eventIndex, :] = (3, direction, timestamp)
+                    eventIndex += 1
+                    recordEvent = False
+
+            # End of motion phase: wait for the end of the IPI or wait for 1 sec 
+            if inIPI:
+                while countdown != 0:
+                    gabor.phase += cpf * direction
+                    gabor.draw()
+                    self.display.flip()
+                    countdown -= 1
+            else:
+                while countdown != 0:
+                    gabor.phase += cpf * direction
+                    gabor.draw()
+                    self.display.flip()
+                    countdown -= 1
+                gabor.contrast = baselineContrast
+                for frameIndex in range(round(self.display.fps * bufferPhaseDuration)):
+                    gabor.phase += cpf * direction
+                    gabor.draw()
+                    self.display.flip()
+
+            # ITI period
+            self.display.signalEvent(3, units='frames')
+            timestamp = self.display.idle(itiDuration, units='seconds', returnFirstTimestamp=True)
+            self.metadata[eventIndex, :] = (4, direction, timestamp)
+            eventIndex += 1
+
+        return
+    
+    def saveMetadata(self, sessionFolder):
+        """
+        """
+
+        self.header.update({
+            'Columns': 'Event (1=Grating, 2=Motion, 3=Probe, 4=ITI), Motion direction, Timestamp'
+        })
+        stream = super().prepareMetadataStream(sessionFolder, 'driftingGratingMetadata', self.header)
+        for array in self.metadata:
+            if np.isnan(array).all():
+                continue
+            event, direction, timestamp = array
+            line = f'{event:.0f}, {direction:.0f}, {timestamp:.3f}\n'
+            stream.write(line)
+
+        return
+
+class DriftingGratingWithWhiteNoise(bases.StimulusBase):
+    """
+    """
+
+    def present(
+        self,
+        spatialFrequency=0.15,
+        velocity=12,
+        contrastRange=(0.4, 1),
+        stepDuration=0.033,
+        motionDirection=(-1, 1),
+        trialDuration=3,
+        trialCount=1,
+        warmupDuration=5,
+        itiDuration=5,
+        staticPhaseDuration=3,
+        warmupPhaseDuration=3,
+        defaultMetadataSize=1000000,
+        ):
+
+        #
+        self.header = {
+            f'Spatial frequency': f'{spatialFrequency} (cycles/degree)',
+            f'Velocity': f'{velocity} (degrees/second)',
+        }
+        self.metadata = np.full((defaultMetadataSize, 3), np.nan)
+
+        #
+        cpp = spatialFrequency / self.display.ppd # cycles per pixel
+        cpf = spatialFrequency * velocity / self.display.fps
+        gabor = visual.GratingStim(
+            self.display,
+            size=self.display.size,
+            units='pix',
+            sf=cpp,
+        )
+
+        #
+        averageContrast = np.min(contrastRange) + np.diff(contrastRange).item() / 2
+
+        #
+        eventIndex = 0
+        trials = np.repeat(motionDirection, trialCount)
+        np.random.shuffle(trials)
+
+        #
+        nSteps = int(np.ceil(trialDuration / stepDuration))
+        if nSteps % 2 == 0:
+            nSteps += 1
+        nFrames = round(self.display.fps * stepDuration)
+
+        #
+        self.display.idle(warmupDuration)
+        for trialIndex, motionDirection in enumerate(trials):
+
+            # static period - grating but no motion
+            gabor.contrast = averageContrast
+            for frameIndex in range(round(self.display.fps * staticPhaseDuration)):
+                gabor.draw()
+                self.display.flip() 
+
+            # pre-flicker period - motion but no contrast modulation
+            for frameIndex in range(round(self.display.fps * warmupPhaseDuration)):
+                gabor.phase += cpf * motionDirection
+                gabor.draw()
+                self.display.flip()
+
+            #
+            for stepIndex in range(nSteps):
+
+                #
+                gabor.contrast = np.random.uniform(*contrastRange, size=1).item()
+                self.display.state = not self.display.state
+
+                #
+                for frameIndex in range(nFrames):
+                    gabor.draw()
+                    timestamp = self.display.flip()
+                    if frameIndex == 0:
+                        self.metadata[eventIndex, :] = (gabor.contrast, motionDirection, timestamp)
+                        eventIndex += 1
+                    gabor.phase += cpf * motionDirection
+
+            # Return the display patch to a LOW state
+            self.display.state = False
+
+            # ITI period
+            self.display.idle(itiDuration)
+
+        #
+        self.metadata = np.array([
+            entry for entry in self.metadata
+                if np.isnan(entry).all() == False
+        ])
+
+        return
+    
+    def saveMetadata(self, sessionFolder):
+        """
+        """
+
+        self.header.update({
+            'Columns': 'Contrast (0, 1), Motion direction (-1=Left, 1=Right), Timestamp (seconds)'
+        })
+        stream = super().prepareMetadataStream(sessionFolder, 'noisyGratingMetadata', self.header)
+        for c, m, t in self.metadata:
+            line = f'{c:.3f}, {m:.0f}, {t:.3f}\n'
+            stream.write(line)
+
+        return
+
+class DriftingGratingWithWhiteNoise2(bases.StimulusBase):
+    """
+    """
+
+    def present(
+        self,
+        spatialFrequency=0.15,
+        velocity=12,
+        contrastRange=(0.4, 1),
+        stepDuration=0.033,
+        motionDirection=(-1, 1),
+        trialDuration=3,
+        trialCount=1,
+        warmupDuration=5,
+        itiDuration=5,
+        staticPhaseDuration=3,
+        defaultMetadataSize=1000000,
+        ):
+
+        #
+        self.header = {
+            f'Spatial frequency': f'{spatialFrequency} (cycles/degree)',
+            f'Velocity': f'{velocity} (degrees/second)',
+        }
+        self.metadata = np.full((defaultMetadataSize, 3), np.nan)
+
+        #
+        cpp = spatialFrequency / self.display.ppd # cycles per pixel
+        cpf = spatialFrequency * velocity / self.display.fps
+        gabor = visual.GratingStim(
+            self.display,
+            size=self.display.size,
+            units='pix',
+            sf=cpp,
+        )
+
+        #
+        eventIndex = 0
+        trials = np.repeat(motionDirection, trialCount)
+        np.random.shuffle(trials)
+
+        #
+        nSteps = int(np.ceil(trialDuration / stepDuration))
+        nFramesPerStep = round(self.display.fps * stepDuration)
+        if nFramesPerStep <= 1:
+            print(f'Warning: Increasing step duration to at least 2 frames')
+            nFramesPerStep = 2
+
+        #
+        self.display.idle(warmupDuration)
+        for trialIndex, motionDirection in enumerate(trials):
+
+            # static period/no motion
+            gabor.contrast = np.min(contrastRange) + np.diff(contrastRange).item() / 2
+            for frameIndex in range(round(self.display.fps * staticPhaseDuration)):
+                gabor.draw()
+                self.display.flip() 
+
+            #
+            for stepIndex in range(nSteps):
+
+                #
+                gabor.contrast = np.random.uniform(*contrastRange, size=1).item()
+                # self.display.signalEvent(1, units='frames')
+                self.display.state = True
+
+                #
+                for frameIndex in range(nFramesPerStep):
+                    if frameIndex == 2:
+                        self.display.state = False
+                    gabor.draw()
+                    timestamp = self.display.flip()
+                    if frameIndex == 0:
+                        self.metadata[eventIndex, :] = (gabor.contrast, motionDirection, timestamp)
+                        eventIndex += 1
+                    gabor.phase += cpf * motionDirection
+
+            # Return the display patch to a LOW state
+            # self.display.state = False
+
+            # ITI period
+            self.display.idle(itiDuration)
+
+        #
+        self.metadata = np.array([
+            entry for entry in self.metadata
+                if np.isnan(entry).all() == False
+        ])
+
+        return
+    
+    def saveMetadata(self, sessionFolder):
+        """
+        """
+
+        self.header.update({
+            'Columns': 'Contrast (0, 1), Motion direction (-1, 1), Timestamp (seconds)'
+        })
+        stream = super().prepareMetadataStream(sessionFolder, 'noisyGratingMetadata', self.header)
+        for c, m, t in self.metadata:
+            line = f'{c:.3f}, {m:.0f}, {t:.3f}\n'
+            stream.write(line)
 
         return

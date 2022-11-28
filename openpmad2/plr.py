@@ -3,7 +3,7 @@ import numpy as np
 import pathlib as pl
 from psychopy import visual
 from itertools import product
-from myphdlib import labjack as lj
+# from myphdlib import labjack as lj
 
 def postprocess(sessionFolder, camera=6, stimulus=7):
     """

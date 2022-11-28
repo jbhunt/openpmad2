@@ -57,10 +57,13 @@ class SparseNoise2D(bases.StimulusBase):
             yi.reshape(-1, 1)
         ])
         coordsInDegrees = np.repeat(coordsInDegrees, repeats, axis=0)
+        coordsInPixels = coordsInDegrees * self.display.ppd
 
         #
-        coordsInPixels = coordsInDegrees * self.display.ppd
-        np.random.shuffle(coordsInPixels)
+        shuffledIndices = np.arange(coordsInPixels.shape[0])
+        np.random.shuffle(shuffledIndices)
+        coordsInPixels = coordsInPixels[shuffledIndices, :]
+        coordsInDegrees = coordsInDegrees[shuffledIndices, :]
 
         #
         self.metadata = np.full([coordsInPixels.shape[0], 4], np.nan)

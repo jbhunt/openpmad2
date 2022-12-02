@@ -116,7 +116,7 @@ class StaticGratingWithVariableProbe():
         self.metadata = np.full([trialCount, 3], np.nan)
         self.metadata[:, 0] = np.arange(1, trialCount + 1, 1)
         self.metadata[:, 1] = np.random.choice(probeContrastLevels, trialCount)
-        self.metadata[:, 1] += baselineContrastLevel
+        self.metadata[:, 1]
 
         cpp = spatialFrequency / self.display.ppd # cycles per pixel
         gabor = visual.GratingStim(

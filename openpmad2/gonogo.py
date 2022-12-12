@@ -106,16 +106,24 @@ class StaticGratingWithVariableProbe():
         spatialFrequency=0.08,
         probeDuration=0.5,
         probeContrastLevels=(0.01, 0.02, 0.03, 0.05, 0.1),
+        probeContrastProbabilities=(0.2, 0.2, 0.2, 0.2, 0.2),
         baselineContrastLevel=0.5,
         interProbeIntervalRange=(5, 10),
         trialCount=5,
         ):
 
         #
+        if len(probeContrastLevels) != len(probeContrastProbabilities):
+            raise Exception('Number of probe levels must equal the number of probabilities')
+
+        if np.sum(probeContrastProbabilities) != 1:
+            raise Exception('Probe probabilities must sum to 1')
+
+        #
         clock = core.MonotonicClock()
         self.metadata = np.full([trialCount, 3], np.nan)
         self.metadata[:, 0] = np.arange(1, trialCount + 1, 1)
-        self.metadata[:, 1] = np.random.choice(probeContrastLevels, trialCount)
+        self.metadata[:, 1] = np.random.choice(probeContrastLevels, trialCount, p=probeContrastProbabilities)
         self.metadata[:, 1]
 
         cpp = spatialFrequency / self.display.ppd # cycles per pixel

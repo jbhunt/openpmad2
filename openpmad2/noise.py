@@ -111,3 +111,68 @@ class SparseNoise2D(bases.StimulusBase):
         stream.close()
 
         return
+
+class SuperResolutionBinaryNoise(bases.StimulusBase):
+    """
+    """
+
+    def present(
+        self,
+        length=10,
+        repeats=1,
+        duration=5,
+        cycle=(0.5, 0.5),
+        probability=0.2
+        ):
+        """
+        """
+
+        #
+        N = (
+            int(self.display.azimuth // length),
+            int(self.display.elevation // length)
+        )
+        offset = (
+            round(self.display.azimuth % length / 2, 2),
+            round(self.display.elevation % length / 2, 2)
+        )
+        xi, yi = np.meshgrid(
+            np.linspace(length, N[0] * length - (length / 2), N[0]) - (self.display.azimuth / 2) + offset[0],
+            np.linspace(length, N[1] * length - (length / 2), N[1]) - (self.display.elevation / 2) + offset[1]
+        )
+
+        #
+        xi = np.around(xi, 3)
+        yi = np.around(yi, 3)
+        coordsInDegrees = np.hstack([
+            xi.reshape(-1, 1),
+            yi.reshape(-1, 1)
+        ])
+        coordsInDegrees = np.repeat(coordsInDegrees, repeats, axis=0)
+        coordsInPixels = coordsInDegrees * self.display.ppd
+        nSubregions = coordsInDegrees.shape[0]
+
+        #
+        field = [
+            visual.ShapeStim(self.display, units='pixels')
+                for i in range(nSubregions)
+        ]
+        vertices = np.array([
+            [-length / 2,  length / 2],
+            [ length / 2,  length / 2],
+            [ length / 2, -length / 2],
+            [-length / 2, -length / 2]
+        ])
+        vertices /= self.display.ppd
+        for subregion, (x, y) in zip(field, coordsInPixels):
+            subregion.pos = x, y
+            subregion.size = self.display.ppd * length
+            subregion.fillColor = np.random.choice([0, 1], size=1, p=[1 - probability, probability]).item()
+            subregion.setVertices(vertices)
+            subregion.lineColor = 0
+            subregion.lineWidth = 0.0
+            subregion.draw()
+        
+        self.display.flip()
+
+        return

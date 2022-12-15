@@ -122,7 +122,8 @@ class SuperResolutionBinaryNoise(bases.StimulusBase):
         repeats=1,
         duration=5,
         cycle=(0.5, 0.5),
-        probability=0.2
+        probability=0.2,
+        shift=2.5,
         ):
         """
         """
@@ -154,25 +155,57 @@ class SuperResolutionBinaryNoise(bases.StimulusBase):
 
         #
         field = [
-            visual.ShapeStim(self.display, units='pixels')
+            visual.Rect(self.display, units='pix')
                 for i in range(nSubregions)
         ]
-        vertices = np.array([
-            [-length / 2,  length / 2],
-            [ length / 2,  length / 2],
-            [ length / 2, -length / 2],
-            [-length / 2, -length / 2]
-        ])
-        vertices /= self.display.ppd
         for subregion, (x, y) in zip(field, coordsInPixels):
             subregion.pos = x, y
-            subregion.size = self.display.ppd * length
-            subregion.fillColor = np.random.choice([0, 1], size=1, p=[1 - probability, probability]).item()
-            subregion.setVertices(vertices)
+            subregion.height = self.display.ppd * length
+            subregion.width = self.display.ppd * length
             subregion.lineColor = 0
             subregion.lineWidth = 0.0
-            subregion.draw()
-        
-        self.display.flip()
+
+        #
+        nTrials = int(np.ceil(duration / (2 * repeats * np.sum(cycle))))
+        self.metadata = np.full([nTrials, self.display.height, self.display.width], np.nan) # TODO: Populate the metadata
+
+        #
+        for iTrial in range(nTrials):
+
+            # Set a new field pattern
+            for subregion in field:
+                subregion.fillColor = np.random.choice([-1, 1], size=1, p=[1 - probability, probability]).item() 
+
+            for phase in ('unshifted', 'shifted'):
+
+                #
+                self.display.clearBuffer()
+
+                #
+                if phase == 'shifted':
+                    theta = np.random.choice([45, 135, 225, 315], size=1).item()
+                    offset = np.array([
+                        shift * np.cos(np.deg2rad(theta)),
+                        shift * np.sin(np.deg2rad(theta))
+                    ]) * self.display.ppd
+                else:
+                    offset = np.array([0, 0])
+
+                #
+                for subregion, (x, y) in zip(field, coordsInPixels):
+                    subregion.pos = (
+                        x + offset[0],
+                        y + offset[1]
+                    )     
+                    subregion.draw()
+
+                #
+                for iFrame in range(int(np.ceil(cycle[0] * self.display.fps))):
+                    self.display.flip(clearBuffer=False)
+
+                #
+                self.display.drawBackground()
+                for iFrame in range(int(np.ceil(cycle[1] * self.display.fps))):
+                    self.display.flip(clearBuffer=False)
 
         return

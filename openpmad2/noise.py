@@ -118,7 +118,7 @@ class SuperResolutionBinaryNoise(bases.StimulusBase):
 
     def present(
         self,
-        length=10,
+        length=5,
         repeats=1,
         duration=5,
         cycle=(0.5, 0.5),
@@ -207,5 +207,12 @@ class SuperResolutionBinaryNoise(bases.StimulusBase):
                 self.display.drawBackground()
                 for iFrame in range(int(np.ceil(cycle[1] * self.display.fps))):
                     self.display.flip(clearBuffer=False)
+
+        return
+
+    def saveMetadata(self, sessionFolder):
+        """
+        TODO: Code this
+        """
 
         return

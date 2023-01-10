@@ -63,6 +63,8 @@ class WarpedWindow(Window):
             units='pix'
         )
 
+        #
+        self._backgroundColor = color
         self._background = GratingStim(
             self,
             tex=np.full(self._textureShape, color),
@@ -204,5 +206,18 @@ class WarpedWindow(Window):
         x, y, w, h = coords
         self._patch.pos = (x, y)
         self._patch.size = (w, h)
+        self._background.draw()
+        self.flip()
+
+    @property
+    def backgroundColor(self):
+        return self._backgroundColor
+
+    @backgroundColor.setter
+    def backgroundColor(self, color):
+        if color < -1 or color > 1:
+            raise Exception('Background color must be in the range (-1, 1)')
+        self._background.tex = np.full(self._textureShape, color)
+        self._backgroundColor = color
         self._background.draw()
         self.flip()

@@ -1,4 +1,3 @@
-from requests import session
 from . import bases
 from . import warping
 from . import writing
@@ -7,6 +6,7 @@ from . import constants
 from psychopy import visual
 import numpy as np
 import pathlib as pl
+from PIL import Image
 
 class SparseNoise2D(bases.StimulusBase):
     """
@@ -112,7 +112,7 @@ class SparseNoise2D(bases.StimulusBase):
 
         return
 
-class SuperResolutionBinaryNoise(bases.StimulusBase):
+class SuperResolutionLowFrequencyBinaryNoise(bases.StimulusBase):
     """
     """
 
@@ -120,13 +120,16 @@ class SuperResolutionBinaryNoise(bases.StimulusBase):
         self,
         length=5,
         repeats=1,
-        duration=5,
+        duration=10,
         cycle=(0.5, 0.5),
         probability=0.2,
-        shift=2.5,
+        randomize=True,
         ):
         """
         """
+
+        shiftInDegrees = round(length / 2, 2)
+        shiftInPixels = shiftInDegrees * self.display.ppd
 
         #
         N = (
@@ -166,47 +169,97 @@ class SuperResolutionBinaryNoise(bases.StimulusBase):
             subregion.lineWidth = 0.0
 
         #
-        nTrials = int(np.ceil(duration / (2 * repeats * np.sum(cycle))))
-        self.metadata = np.full([nTrials, self.display.height, self.display.width], np.nan) # TODO: Populate the metadata
+        tBlock = 2 * np.sum(cycle)
+        nBlocks = duration // tBlock
+        nTrials = int(nBlocks * 2)
 
         #
+        self.metadata = {
+            'M': np.full([nTrials, nSubregions], False, dtype=bool), # Masks
+            'C': np.full([nTrials, nSubregions, 2], np.nan), # coordinates
+            'I': np.full([nTrials, self.display.height, self.display.width], np.nan), # Images
+        }
+
+        # Generate the trial sequence
+        iTrial = 0
+        while iTrial < nTrials:
+
+            # Create a mask
+            mask = np.random.choice(
+                a=[True, False],
+                size=nSubregions,
+                p=[probability, 1 - probability],
+            ).astype(bool)
+
+            # Iterate through each phase: original/shifted
+            for phase in ('original', 'shifted'):
+
+                # Compute the spatial offset
+                if phase == 'original':
+                    offset = np.array([0, 0])
+                else:
+                    offset = np.array([0, 0]) + shiftInPixels
+                    # theta = np.random.choice([45, 135, 225, 315], size=1).item()
+                    # offset = np.array([
+                    #     shiftInPixels * np.cos(np.deg2rad(theta)),
+                    #     shiftInPixels * np.sin(np.deg2rad(theta))
+                    # ]) * self.display.ppd
+                coords = np.around(coordsInPixels + offset, 2)
+
+                #
+                self.metadata['M'][iTrial] = mask
+                self.metadata['C'][iTrial] = coords
+
+                #
+                iTrial += 1
+
+        # Randomize the trials
+        if randomize:
+            shuffle = np.arange(nTrials)
+            np.random.shuffle(shuffle)
+            for key in ('M', 'C'):
+                self.metadata[key] = self.metadata[key][shuffle]
+
+        # Change the background to black and wait 5 seconds
+        if self.display.backgroundColor != -1:
+            self.display.backgroundColor = -1
+            self.display.idle(5, units='seconds')
+
+        # Main presentation loop
         for iTrial in range(nTrials):
 
+            #
+            self.display.clearBuffer()
+
+            #
+            mask = self.metadata['M'][iTrial]
+            coords = self.metadata['C'][iTrial]
+
             # Set a new field pattern
-            for subregion in field:
-                subregion.fillColor = np.random.choice([-1, 1], size=1, p=[1 - probability, probability]).item() 
-
-            for phase in ('unshifted', 'shifted'):
+            for flag, (x, y), subregion in zip(mask, coords, field):
 
                 #
-                self.display.clearBuffer()
+                color = 1 if flag else -1
+                subregion.fillColor = color
+                subregion.pos = (x, y)
+                subregion.draw()
 
-                #
-                if phase == 'shifted':
-                    theta = np.random.choice([45, 135, 225, 315], size=1).item()
-                    offset = np.array([
-                        shift * np.cos(np.deg2rad(theta)),
-                        shift * np.sin(np.deg2rad(theta))
-                    ]) * self.display.ppd
-                else:
-                    offset = np.array([0, 0])
+            #
+            # image = np.array(
+            #     self.display.getMovieFrame(buffer='back').convert('L').transpose(Image.FLIP_TOP_BOTTOM)
+            # )
+            # self.metadata['I'][iTrial] = image
 
-                #
-                for subregion, (x, y) in zip(field, coordsInPixels):
-                    subregion.pos = (
-                        x + offset[0],
-                        y + offset[1]
-                    )     
-                    subregion.draw()
+            #
+            self.display.signalEvent(1, units='frames')
+            for iFrame in range(int(np.ceil(cycle[0] * self.display.fps))):
+                self.display.flip(clearBuffer=False)
 
-                #
-                for iFrame in range(int(np.ceil(cycle[0] * self.display.fps))):
-                    self.display.flip(clearBuffer=False)
-
-                #
-                self.display.drawBackground()
-                for iFrame in range(int(np.ceil(cycle[1] * self.display.fps))):
-                    self.display.flip(clearBuffer=False)
+            #
+            self.display.signalEvent(1, units='frames')
+            self.display.drawBackground()
+            for iFrame in range(int(np.ceil(cycle[1] * self.display.fps))):
+                self.display.flip(clearBuffer=False)
 
         return
 
@@ -214,5 +267,8 @@ class SuperResolutionBinaryNoise(bases.StimulusBase):
         """
         TODO: Code this
         """
+
+        # NOTE: Images are flipped vertically through the projector.
+        #       Y-values need to be multiplied by -1.
 
         return

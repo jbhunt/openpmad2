@@ -154,6 +154,12 @@ class WarpedWindow(Window):
 
         return
 
+    def getNumpyArray(self, buffer='back'):
+        """
+        """
+
+        return np.array(self.getMovieFrame(buffer=buffer).convert('L'))
+
     @property
     def width(self):
         return self._width

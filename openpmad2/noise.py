@@ -4,9 +4,13 @@ from . import writing
 from . import helpers
 from . import constants
 from psychopy import visual
+import pickle
 import numpy as np
 import pathlib as pl
 from PIL import Image
+
+#
+np.random.seed(12646236)
 
 class SparseNoise2D(bases.StimulusBase):
     """
@@ -112,61 +116,156 @@ class SparseNoise2D(bases.StimulusBase):
 
         return
 
-class SuperResolutionLowFrequencyBinaryNoise(bases.StimulusBase):
+def _computeGridPoints(lengthInDegrees, display):
+    """
+    Compute the coordinates for each square in a grid which uniformly
+    covers the entire display
+
+    keywords
+    --------
+    lengthInDegrees
+        The side length of a unit grid square (in degrees of visual angle)
+    """
+
+    lengthInPixels = lengthInDegrees * display.ppd
+
+    #
+    shape = np.array([
+        int(display.width  // lengthInPixels),
+        int(display.height // lengthInPixels)
+    ])
+    offset = np.array([
+        round(display.width  % lengthInPixels / 2, 2),
+        round(display.height % lengthInPixels / 2, 2)
+    ])
+
+    #
+    xi, yi = np.meshgrid(
+        np.arange(shape[0]) * lengthInPixels + (lengthInPixels / 2),
+        np.arange(shape[1]) * lengthInPixels + (lengthInPixels / 2)
+    )
+    xi = np.around(xi + offset[0] - (display.width / 2), 2)
+    yi = np.around(yi + offset[1] - (display.height / 2), 2)
+
+    #
+    coordinates = np.hstack([
+        xi.reshape(-1, 1),
+        yi.reshape(-1, 1)
+    ])
+
+    return np.around(coordinates, 3), np.flip(shape)
+
+class BinaryNoise(bases.StimulusBase):
     """
     """
 
     def present(
         self,
         length=5,
-        repeats=1,
-        duration=10,
-        cycle=(0.5, 0.5),
-        probability=0.2,
-        randomize=True,
+        tImage=0.05,
+        tPresent=3,
+        pHigh=0.2,
+        tIdle=3,
         ):
         """
         """
 
-        shiftInDegrees = round(length / 2, 2)
-        shiftInPixels = shiftInDegrees * self.display.ppd
+        coordsInPixels, (gridHeight, gridWidth) = _computeGridPoints(length, self.display)
+        coordsInDegrees = coordsInPixels / self.display.ppd
+        nSubregions = coordsInPixels.shape[0]
+        initialColors = np.random.choice([-1, 1], p=[1 - pHigh, pHigh], size=nSubregions).reshape(-1, 1)
+
+        # Create the visual field
+        field = visual.ElementArrayStim(
+            self.display,
+            fieldPos=coordsInPixels,
+            fieldShape='sqr',
+            nElements=nSubregions,
+            sizes=length * self.display.ppd,
+            colors=initialColors,
+            elementMask=None,
+            elementTex=None,
+            units='pixels', 
+        )
+
+        # Change the background to black and wait 5 seconds
+        if self.display.backgroundColor != -1:
+            self.display.backgroundColor = -1
+        self.display.idle(tIdle, units='seconds')
+
+        # Populate the metadata dictionary
+        nTrials = int(tPresent // tImage)
+        self.metadata = {
+            'fields': np.full([nTrials, gridHeight, gridWidth], 0).astype(np.float64),
+            'coords': np.full([nTrials, nSubregions, 2], np.nan),
+            'values': np.full([nTrials, nSubregions], np.nan)
+        }
+        self.metadata['length'] = length
+        self.metadata['interval'] = tImage
 
         #
-        N = (
-            int(self.display.azimuth // length),
-            int(self.display.elevation // length)
-        )
-        offset = (
-            round(self.display.azimuth % length / 2, 2),
-            round(self.display.elevation % length / 2, 2)
-        )
-        xi, yi = np.meshgrid(
-            np.linspace(length, N[0] * length - (length / 2), N[0]) - (self.display.azimuth / 2) + offset[0],
-            np.linspace(length, N[1] * length - (length / 2), N[1]) - (self.display.elevation / 2) + offset[1]
-        )
+        for iTrial in range(nTrials):
+
+            #
+            colors = np.random.choice(
+                a=np.array([-1, 1]),
+                p=np.array([1 - pHigh, pHigh]),
+                size=nSubregions
+            ).reshape(-1, 1)
+            field.colors = colors
+
+            #
+            self.metadata['coords'][iTrial, :, 0] = coordsInDegrees[:, 0]
+            self.metadata['coords'][iTrial, :, 1] = coordsInDegrees[:, 1]
+
+            #
+            self.display.signalEvent(1, units='frames')
+            for iFrame in range(int(np.ceil(tImage * self.display.fps))):
+                field.draw()
+                self.metadata['fields'][iTrial] = colors.reshape(gridHeight, gridWidth)
+                self.display.flip()
+
+        # Display black screen for 5 seconds
+        self.display.idle(tIdle, units='seconds')
+
+        return
+
+    def saveMetadata(self, sessionFolder, correctVerticalReflection=True):
+        """
+        """
+
+        sessionFolderPath = pl.Path(sessionFolder)
+        if sessionFolderPath.exists() == False:
+            sessionFolderPath.mkdir()
 
         #
-        xi = np.around(xi, 3)
-        yi = np.around(yi, 3)
-        coordsInDegrees = np.hstack([
-            xi.reshape(-1, 1),
-            yi.reshape(-1, 1)
-        ])
-        coordsInDegrees = np.repeat(coordsInDegrees, repeats, axis=0)
-        coordsInPixels = coordsInDegrees * self.display.ppd
-        nSubregions = coordsInDegrees.shape[0]
+        output = self.metadata.copy()
+        if correctVerticalReflection:
+            output['fields'] = np.flip(self.metadata['fields'], axis=1)
+            output['coords'][:, :, 1] = -1 * self.metadata['coords'][:, :, 1]
 
         #
-        field = [
-            visual.Rect(self.display, units='pix')
-                for i in range(nSubregions)
-        ]
-        for subregion, (x, y) in zip(field, coordsInPixels):
-            subregion.pos = x, y
-            subregion.height = self.display.ppd * length
-            subregion.width = self.display.ppd * length
-            subregion.lineColor = 0
-            subregion.lineWidth = 0.0
+        with open(sessionFolderPath.joinpath('binaryNoiseMetadata.pkl'), 'wb') as stream:
+            pickle.dump(output, stream)
+
+        return
+
+class SuperResolutionBinaryNoise(bases.StimulusBase):
+    """
+    """
+
+    def _generateMetadata(
+        self,
+        cycle,
+        duration,
+        probability,
+        nSubregions,
+        shiftInPixels,
+        coordsInPixels,
+        gridShape,
+        ):
+        """
+        """
 
         #
         tBlock = 2 * np.sum(cycle)
@@ -174,10 +273,10 @@ class SuperResolutionLowFrequencyBinaryNoise(bases.StimulusBase):
         nTrials = int(nBlocks * 2)
 
         #
+        gridHeight, gridWidth = gridShape
         self.metadata = {
-            'M': np.full([nTrials, nSubregions], False, dtype=bool), # Masks
-            'C': np.full([nTrials, nSubregions, 2], np.nan), # coordinates
-            'I': np.full([nTrials, self.display.height, self.display.width], np.nan), # Images
+            'fields': np.full([nTrials, gridHeight, gridWidth], np.nan).astype(np.float64),
+            'coords': np.full([nTrials, nSubregions, 2], np.nan), # coordinates (in pixels)
         }
 
         # Generate the trial sequence
@@ -185,11 +284,11 @@ class SuperResolutionLowFrequencyBinaryNoise(bases.StimulusBase):
         while iTrial < nTrials:
 
             # Create a mask
-            mask = np.random.choice(
-                a=[True, False],
-                size=nSubregions,
+            values = np.random.choice(
+                a=[1, -1],
+                size=gridShape,
                 p=[probability, 1 - probability],
-            ).astype(bool)
+            )
 
             # Iterate through each phase: original/shifted
             for phase in ('original', 'shifted'):
@@ -198,77 +297,147 @@ class SuperResolutionLowFrequencyBinaryNoise(bases.StimulusBase):
                 if phase == 'original':
                     offset = np.array([0, 0])
                 else:
-                    offset = np.array([0, 0]) + shiftInPixels
-                    # theta = np.random.choice([45, 135, 225, 315], size=1).item()
-                    # offset = np.array([
-                    #     shiftInPixels * np.cos(np.deg2rad(theta)),
-                    #     shiftInPixels * np.sin(np.deg2rad(theta))
-                    # ]) * self.display.ppd
+                    offset = np.random.choice([-1, 1], size=2) * (np.array([0, 0]) + shiftInPixels)
                 coords = np.around(coordsInPixels + offset, 2)
 
                 #
-                self.metadata['M'][iTrial] = mask
-                self.metadata['C'][iTrial] = coords
+                self.metadata['coords'][iTrial] = coords
+                self.metadata['fields'][iTrial] = values
 
                 #
                 iTrial += 1
 
-        # Randomize the trials
-        if randomize:
-            shuffle = np.arange(nTrials)
-            np.random.shuffle(shuffle)
-            for key in ('M', 'C'):
-                self.metadata[key] = self.metadata[key][shuffle]
+        return
 
-        # Change the background to black and wait 5 seconds
-        if self.display.backgroundColor != -1:
-            self.display.backgroundColor = -1
-            self.display.idle(5, units='seconds')
+    def _runMainLoop(
+        self,
+        nTrials,
+        field,
+        cycle,
+        tIdle,
+        ):
+        """
+        """
 
-        # Main presentation loop
+        self.display.idle(tIdle, units='seconds')
+
+        #
         for iTrial in range(nTrials):
 
             #
             self.display.clearBuffer()
 
-            #
-            mask = self.metadata['M'][iTrial]
-            coords = self.metadata['C'][iTrial]
-
             # Set a new field pattern
-            for flag, (x, y), subregion in zip(mask, coords, field):
+            field.fieldPos = self.metadata['coords'][iTrial]
+            field.colors = self.metadata['fields'][iTrial].reshape(field.nElements, 1)
+            field.draw()
 
-                #
-                color = 1 if flag else -1
-                subregion.fillColor = color
-                subregion.pos = (x, y)
-                subregion.draw()
+            # Save a copy of the stimulus
+            image = np.array(
+                self.display.getMovieFrame(buffer='back').convert('L').transpose(Image.FLIP_TOP_BOTTOM)
+            )
 
-            #
-            # image = np.array(
-            #     self.display.getMovieFrame(buffer='back').convert('L').transpose(Image.FLIP_TOP_BOTTOM)
-            # )
-            # self.metadata['I'][iTrial] = image
-
-            #
+            # Present the field
             self.display.signalEvent(1, units='frames')
             for iFrame in range(int(np.ceil(cycle[0] * self.display.fps))):
                 self.display.flip(clearBuffer=False)
 
-            #
+            # ITI
             self.display.signalEvent(1, units='frames')
             self.display.drawBackground()
             for iFrame in range(int(np.ceil(cycle[1] * self.display.fps))):
                 self.display.flip(clearBuffer=False)
 
+        self.display.idle(tIdle, units='seconds')
+
         return
 
-    def saveMetadata(self, sessionFolder):
+    def present(
+        self,
+        length=10,
+        repeats=1, # TODO: Implement this
+        duration=10,
+        cycle=(0.5, 0.5),
+        probability=0.2,
+        randomize=True,
+        tIdle=3,
+        ):
         """
-        TODO: Code this
         """
 
-        # NOTE: Images are flipped vertically through the projector.
-        #       Y-values need to be multiplied by -1.
+        #
+        coordsInPixels, gridShape = _computeGridPoints(length, self.display)
+        nSubregions = coordsInPixels.shape[0]
+        initialColors = np.random.choice([-1, 1], p=[1 - probability, probability], size=nSubregions).reshape(-1, 1)
+
+        # Create the visual field
+        field = visual.ElementArrayStim(
+            self.display,
+            fieldPos=coordsInPixels,
+            fieldShape='sqr',
+            nElements=nSubregions,
+            sizes=length * self.display.ppd,
+            colors=initialColors,
+            elementMask=None,
+            elementTex=None,
+            units='pixels', 
+        )
+
+        # Create the metadata container
+        shiftInPixels = round(length / 2 * self.display.ppd, 2)
+        self._generateMetadata(
+            cycle,
+            duration,
+            probability,
+            nSubregions,
+            shiftInPixels,
+            coordsInPixels,
+            gridShape
+        )
+
+        # Determine the total number of trials
+        tBlock = 2 * np.sum(cycle)
+        nBlocks = duration // tBlock
+        nTrials = int(nBlocks * 2)
+
+        # Randomize the trials
+        if randomize:
+            shuffle = np.arange(nTrials)
+            np.random.shuffle(shuffle)
+            for key in ('fields', 'coords'):
+                self.metadata[key] = self.metadata[key][shuffle]
+
+        # Change the background to black and wait 5 seconds
+        if self.display.backgroundColor != -1:
+            self.display.backgroundColor = -1
+
+        # Run main presentation loop
+        self._runMainLoop(
+            nTrials,
+            field,
+            cycle,
+            tIdle
+        )
+
+        return
+
+    def saveMetadata(self, sessionFolder, correctVerticalReflection=False):
+        """
+        """
+
+        sessionFolderPath = pl.Path(sessionFolder)
+        if sessionFolderPath.exists() == False:
+            sessionFolderPath.mkdir()
+
+
+        #
+        output = self.metadata.copy()
+        if correctVerticalReflection:
+            output['fields'] = np.flip(self.metadata['fields'], axis=1)
+            output['coords'][:, :, 1] = -1 * self.metadata['coords'][:, :, 1]
+
+        #
+        with open(sessionFolderPath.joinpath('binaryNoiseMetadata.pkl'), 'wb') as stream:
+            pickle.dump(self.metadata, stream)
 
         return

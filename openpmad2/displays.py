@@ -31,10 +31,11 @@ class WarpedWindow(Window):
         self._width, self._height = size
         self._azimuth, self._elevation = fov
         self._fps = fps
-        self._ppd = np.mean([
-            self.width / self.azimuth,
-            self.height / self.elevation
-        ])
+        # self._ppd = np.mean([
+        #    self.width / self.azimuth,
+        #     self.height / self.elevation
+        # ])
+        self._ppd = self._width / self._azimuth
         self._textureShape = textureShape
 
         #

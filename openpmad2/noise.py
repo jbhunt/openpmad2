@@ -41,8 +41,8 @@ def _computeGridPoints(lengthInDegrees, display):
         np.arange(shape[0]) * lengthInPixels + (lengthInPixels / 2),
         np.arange(shape[1]) * lengthInPixels + (lengthInPixels / 2)
     )
-    xi = np.around(xi + offset[0] - (display.width / 2), 2)
-    yi = np.around(yi + offset[1] - (display.height / 2), 2)
+    xi = xi + offset[0] - (display.width / 2)
+    yi = yi + offset[1] - (display.height / 2)
 
     #
     coordinates = np.hstack([
@@ -121,7 +121,7 @@ class SparseNoise(bases.StimulusBase):
             field.colors = colors.reshape(-1, 1)
             
             #
-            self.display.signalEvent(1, units='frames')
+            self.display.signalEvent(3, units='frames')
             for iFrame in range(int(np.ceil(cycle[0] * self.display.fps))):
                 field.draw()
                 self.display.flip()
@@ -131,7 +131,7 @@ class SparseNoise(bases.StimulusBase):
             field.colors = colors
 
             #
-            self.display.signalEvent(1, units='frames')
+            self.display.signalEvent(3, units='frames')
             for iFrame in range(int(np.ceil(cycle[1] * self.display.fps))):
                 field.draw()
                 self.display.flip()
@@ -168,7 +168,7 @@ class SparseNoise(bases.StimulusBase):
             nElements=nSubregions,
             sizes=length * self.display.ppd,
             colors=np.random.choice([-1, 1], size=nSubregions).reshape(-1, 1),
-            elementMask=None,
+            elementMask='circle',
             elementTex=None,
             units='pixels', 
         )
@@ -194,11 +194,10 @@ class SparseNoise(bases.StimulusBase):
         #
         output = self.metadata.copy()
         if correctVerticalReflection:
-            output['fields'] = np.flip(self.metadata['fields'], axis=1)
-            output['coords'][:, 1] = -1 * self.metadata['coords'][:, :, 1]
+            output['coords'][:, 1] = -1 * self.metadata['coords'][:, 1]
 
         #
-        with open(sessionFolderPath.joinpath('binaryNoiseMetadata.pkl'), 'wb') as stream:
+        with open(sessionFolderPath.joinpath('sparseNoiseMetadata.pkl'), 'wb') as stream:
             pickle.dump(output, stream)
 
         return    
@@ -245,8 +244,7 @@ class BinaryNoise(bases.StimulusBase):
         nTrials = int(tPresent // tImage)
         self.metadata = {
             'fields': np.full([nTrials, gridHeight, gridWidth], 0).astype(np.float64),
-            'coords': np.full([nTrials, nSubregions, 2], np.nan),
-            'values': np.full([nTrials, nSubregions], np.nan)
+            'coords': coordsInDegrees,
         }
         self.metadata['length'] = length
         self.metadata['interval'] = tImage
@@ -263,11 +261,7 @@ class BinaryNoise(bases.StimulusBase):
             field.colors = colors
 
             #
-            self.metadata['coords'][iTrial, :, 0] = coordsInDegrees[:, 0]
-            self.metadata['coords'][iTrial, :, 1] = coordsInDegrees[:, 1]
-
-            #
-            self.display.signalEvent(1, units='frames')
+            self.display.signalEvent(3, units='frames')
             for iFrame in range(int(np.ceil(tImage * self.display.fps))):
                 field.draw()
                 self.metadata['fields'][iTrial] = colors.reshape(gridHeight, gridWidth)
@@ -278,7 +272,7 @@ class BinaryNoise(bases.StimulusBase):
 
         return
 
-    def saveMetadata(self, sessionFolder, correctVerticalReflection=True):
+    def saveMetadata(self, sessionFolder, correctHorizontalReflection=True):
         """
         """
 
@@ -288,9 +282,9 @@ class BinaryNoise(bases.StimulusBase):
 
         #
         output = self.metadata.copy()
-        if correctVerticalReflection:
-            output['fields'] = np.flip(self.metadata['fields'], axis=1)
-            output['coords'][:, :, 1] = -1 * self.metadata['coords'][:, :, 1]
+        if correctHorizontalReflection:
+            # TODO: Reorganized coordinates from top to bottom, left to right
+            pass
 
         #
         with open(sessionFolderPath.joinpath('binaryNoiseMetadata.pkl'), 'wb') as stream:
@@ -386,12 +380,12 @@ class JitteredNoise(bases.StimulusBase):
             )
 
             # Present the field
-            self.display.signalEvent(1, units='frames')
+            self.display.signalEvent(3, units='frames')
             for iFrame in range(int(np.ceil(cycle[0] * self.display.fps))):
                 self.display.flip(clearBuffer=False)
 
             # ITI
-            self.display.signalEvent(1, units='frames')
+            self.display.signalEvent(3, units='frames')
             self.display.drawBackground()
             for iFrame in range(int(np.ceil(cycle[1] * self.display.fps))):
                 self.display.flip(clearBuffer=False)

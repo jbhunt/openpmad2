@@ -8,113 +8,10 @@ import pickle
 import numpy as np
 import pathlib as pl
 from PIL import Image
+from openpmad2.constants import numpyRandomSeed
 
 #
-np.random.seed(12646236)
-
-class SparseNoise2D(bases.StimulusBase):
-    """
-    """
-
-    def present(
-        self,
-        radius=5,
-        duration=0.5,
-        repeats=3,
-        warmup=1
-        ):
-        """
-        """
-
-        self.header = {
-            'Radius': f'{radius} degrees',
-        }
-
-        #
-        spot = visual.Circle(
-            self.display,
-            fillColor='white',
-            lineWidth=0,
-            units='pix',
-            size=2 * self.display.ppd * radius
-        )
-
-        #
-        N = (
-            int(self.display.azimuth // (radius * 2)),
-            int(self.display.elevation // (radius * 2))
-        )
-        offset = (
-            round(self.display.azimuth % (radius * 2) / 2, 2),
-            round(self.display.elevation % (radius * 2) / 2, 2)
-        )
-        xi, yi = np.meshgrid(
-            np.linspace(radius, N[0] * 2 * radius - radius, N[0]) - (self.display.azimuth / 2) + offset[0],
-            np.linspace(radius, N[1] * 2 * radius - radius, N[1]) - (self.display.elevation / 2) + offset[1]
-        )
-
-        #
-        xi = np.around(xi, 3)
-        yi = np.around(yi, 3)
-        coordsInDegrees = np.hstack([
-            xi.reshape(-1, 1),
-            yi.reshape(-1, 1)
-        ])
-        coordsInDegrees = np.repeat(coordsInDegrees, repeats, axis=0)
-        coordsInPixels = coordsInDegrees * self.display.ppd
-
-        #
-        shuffledIndices = np.arange(coordsInPixels.shape[0])
-        np.random.shuffle(shuffledIndices)
-        coordsInPixels = coordsInPixels[shuffledIndices, :]
-        coordsInDegrees = coordsInDegrees[shuffledIndices, :]
-
-        #
-        self.metadata = np.full([coordsInPixels.shape[0], 4], np.nan)
-        self.metadata[:, :2] = coordsInDegrees
-
-        #
-        self.display.idle(warmup, units='seconds')
-
-        #
-        for trialIndex, coord in enumerate(coordsInPixels):
-
-            #
-            spot.pos = coord
-
-            #
-            self.display.signalEvent(3, units='frames')
-            for frameIndex in range(int(np.ceil(self.display.fps * duration))):
-                self.display.drawBackground()
-                spot.draw()
-                if frameIndex == 0:
-                    self.metadata[trialIndex, 2] = self.display.flip()
-                else:
-                    self.display.flip()
-
-            #
-            self.display.signalEvent(3, units='frames')
-            for frameIndex in range(int(np.ceil(self.display.fps * duration))):
-                self.display.drawBackground()
-                if frameIndex == 0:
-                    self.metadata[trialIndex, 3] = self.display.flip()
-                else:
-                    self.display.flip()
-
-        return
-
-    def saveMetadata(self, sessionFolder):
-        """
-        """
-
-        self.header.update({'Columns': 'Azimuth (degrees), Elevation (degrees), Timestamp (On), Timestamp (Off)'})
-        stream = super().prepareMetadataStream(sessionFolder, 'sparseNoiseMetadata', self.header)
-        for x, y, t1, t2 in self.metadata:
-            line = f'{x:.1f}, {y:.1f}, {t1:.3f}, {t2:.3f}\n'
-            stream.write(line)
-        stream.close()
-
-        return
+np.random.seed(numpyRandomSeed)
 
 def _computeGridPoints(lengthInDegrees, display):
     """
@@ -153,7 +50,158 @@ def _computeGridPoints(lengthInDegrees, display):
         yi.reshape(-1, 1)
     ])
 
-    return np.around(coordinates, 3), np.flip(shape)
+    return np.around(coordinates, 0), np.flip(shape)
+
+class SparseNoise(bases.StimulusBase):
+    """
+    """
+
+    def _generateMetadata(
+        self,
+        coordsInPixels,
+        repeats,
+        field,
+        nTrials,
+        gridShape,
+        randomize
+        ):
+        """
+        """
+
+        #
+        coordsInDegrees = np.around(coordsInPixels / self.display.ppd, 3)
+        gridHeight, gridWidth = gridShape
+        self.metadata = {
+            'fields': np.full([nTrials, gridHeight, gridWidth], np.nan),
+            'coords': np.full([nTrials, 2], np.nan),
+            'indices': np.full([nTrials, 1], 0).astype(np.int64)
+        }
+
+        #
+        iTrial = 0
+        for iRepeat in range(repeats):
+            for iSubregion in np.arange(field.nElements):
+                image = np.full(field.nElements, -1)
+                image[iSubregion] = 1
+                self.metadata['fields'][iTrial] = image.reshape(gridShape)
+                self.metadata['coords'][iTrial] = coordsInDegrees[iSubregion]
+                self.metadata['indices'][iTrial] = iSubregion
+                iTrial += 1
+
+        #
+        if randomize:
+            trialIndices = np.arange(nTrials)
+            np.random.shuffle(trialIndices)
+            self.metadata['fields'] = self.metadata['fields'][trialIndices]
+            self.metadata['coords'] = self.metadata['coords'][trialIndices]
+            self.metadata['indices'] = self.metadata['indices'][trialIndices]
+
+        return
+
+    def _runMainLoop(
+        self,
+        field,
+        tIdle,
+        cycle,
+        nTrials,
+        ):
+        """
+        """
+
+        if self.display.backgroundColor != -1:
+            self.display.backgroundColor = -1
+        self.display.idle(tIdle)
+
+        for iTrial in range(nTrials):
+
+            #
+            iSubregion = self.metadata['indices'][iTrial]
+            colors = np.full(field.nElements, -1)
+            colors[iSubregion] = 1
+            field.colors = colors.reshape(-1, 1)
+            
+            #
+            self.display.signalEvent(1, units='frames')
+            for iFrame in range(int(np.ceil(cycle[0] * self.display.fps))):
+                field.draw()
+                self.display.flip()
+
+            #
+            colors = np.full(field.nElements, -1).reshape(-1, 1)
+            field.colors = colors
+
+            #
+            self.display.signalEvent(1, units='frames')
+            for iFrame in range(int(np.ceil(cycle[1] * self.display.fps))):
+                field.draw()
+                self.display.flip()
+
+        self.display.idle(tIdle)
+
+        return
+
+    def present(
+        self,
+        radius=5,
+        cycle=(0.5, 0.5),
+        repeats=1,
+        tIdle=3,
+        randomize=True,
+        ):
+        """
+        """
+
+        #
+        length = radius * 2
+        coordsInPixels, gridShape = _computeGridPoints(length, self.display)
+        gridHeight, gridWidth = gridShape
+        nSubregions = coordsInPixels.shape[0]
+
+        #
+        nTrials = int(gridWidth * gridHeight * repeats)
+
+        #
+        field = visual.ElementArrayStim(
+            self.display,
+            fieldPos=coordsInPixels,
+            fieldShape='sqr',
+            nElements=nSubregions,
+            sizes=length * self.display.ppd,
+            colors=np.random.choice([-1, 1], size=nSubregions).reshape(-1, 1),
+            elementMask=None,
+            elementTex=None,
+            units='pixels', 
+        )
+
+        # Generate metadata
+        self._generateMetadata(coordsInPixels, repeats, field, nTrials, gridShape, randomize)
+        self.metadata['length'] = length
+        self.metadata['cycle'] = cycle
+
+        # Run main loop
+        self._runMainLoop(field, tIdle, cycle, nTrials)
+
+        return
+
+    def saveMetadata(self, sessionFolder, correctVerticalReflection=False):
+        """
+        """
+
+        sessionFolderPath = pl.Path(sessionFolder)
+        if sessionFolderPath.exists() == False:
+            sessionFolderPath.mkdir()
+
+        #
+        output = self.metadata.copy()
+        if correctVerticalReflection:
+            output['fields'] = np.flip(self.metadata['fields'], axis=1)
+            output['coords'][:, 1] = -1 * self.metadata['coords'][:, :, 1]
+
+        #
+        with open(sessionFolderPath.joinpath('binaryNoiseMetadata.pkl'), 'wb') as stream:
+            pickle.dump(output, stream)
+
+        return    
 
 class BinaryNoise(bases.StimulusBase):
     """
@@ -250,7 +298,7 @@ class BinaryNoise(bases.StimulusBase):
 
         return
 
-class SuperResolutionBinaryNoise(bases.StimulusBase):
+class JitteredNoise(bases.StimulusBase):
     """
     """
 
@@ -437,7 +485,7 @@ class SuperResolutionBinaryNoise(bases.StimulusBase):
             output['coords'][:, :, 1] = -1 * self.metadata['coords'][:, :, 1]
 
         #
-        with open(sessionFolderPath.joinpath('binaryNoiseMetadata.pkl'), 'wb') as stream:
+        with open(sessionFolderPath.joinpath('jitteredNoiseMetadata.pkl'), 'wb') as stream:
             pickle.dump(self.metadata, stream)
 
         return

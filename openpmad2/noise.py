@@ -63,7 +63,8 @@ class SparseNoise(bases.StimulusBase):
         field,
         nTrials,
         gridShape,
-        randomize
+        randomize,
+        correctVerticalReflection
         ):
         """
         """
@@ -72,8 +73,14 @@ class SparseNoise(bases.StimulusBase):
         coordsInDegrees = np.around(coordsInPixels / self.display.ppd, 3)
         gridHeight, gridWidth = gridShape
         self.metadata = {
+
+            # Luminance values for each subregion on the ith trial
             'fields': np.full([nTrials, gridHeight, gridWidth], np.nan),
+
+            # x and y coordinates in degrees for the center of the illuminated subregion for the ith trial
             'coords': np.full([nTrials, 2], np.nan),
+
+            # indices which indicates the subregion illuminated on the ith trial
             'indices': np.full([nTrials, 1], 0).astype(np.int64)
         }
 
@@ -84,7 +91,10 @@ class SparseNoise(bases.StimulusBase):
                 image = np.full(field.nElements, -1)
                 image[iSubregion] = 1
                 self.metadata['fields'][iTrial] = image.reshape(gridShape)
-                self.metadata['coords'][iTrial] = coordsInDegrees[iSubregion]
+                coords = coordsInDegrees[iSubregion]
+                if correctVerticalReflection:
+                    coords[1] = coords[1] * -1
+                self.metadata['coords'][iTrial] = coords
                 self.metadata['indices'][iTrial] = iSubregion
                 iTrial += 1
 
@@ -147,6 +157,7 @@ class SparseNoise(bases.StimulusBase):
         repeats=1,
         tIdle=3,
         randomize=True,
+        correctVerticalReflection=True
         ):
         """
         """
@@ -174,7 +185,15 @@ class SparseNoise(bases.StimulusBase):
         )
 
         # Generate metadata
-        self._generateMetadata(coordsInPixels, repeats, field, nTrials, gridShape, randomize)
+        self._generateMetadata(
+            coordsInPixels,
+            repeats,
+            field,
+            nTrials,
+            gridShape,
+            randomize,
+            correctVerticalReflection
+        )
         self.metadata['length'] = length
         self.metadata['cycle'] = cycle
 
@@ -183,7 +202,7 @@ class SparseNoise(bases.StimulusBase):
 
         return
 
-    def saveMetadata(self, sessionFolder, correctVerticalReflection=False):
+    def saveMetadata(self, sessionFolder):
         """
         """
 
@@ -192,13 +211,8 @@ class SparseNoise(bases.StimulusBase):
             sessionFolderPath.mkdir()
 
         #
-        output = self.metadata.copy()
-        if correctVerticalReflection:
-            output['coords'][:, 1] = -1 * self.metadata['coords'][:, 1]
-
-        #
         with open(sessionFolderPath.joinpath('sparseNoiseMetadata.pkl'), 'wb') as stream:
-            pickle.dump(output, stream)
+            pickle.dump(self.metadata, stream)
 
         return    
 
@@ -213,6 +227,7 @@ class BinaryNoise(bases.StimulusBase):
         tPresent=3,
         pHigh=0.2,
         tIdle=3,
+        correctVerticalReflection=True,
         ):
         """
         """
@@ -246,6 +261,8 @@ class BinaryNoise(bases.StimulusBase):
             'fields': np.full([nTrials, gridHeight, gridWidth], 0).astype(np.float64),
             'coords': coordsInDegrees,
         }
+        if correctVerticalReflection:
+            self.metadata['coords'][:, 1] = self.metadata['coords'][:, 1] * -1
         self.metadata['length'] = length
         self.metadata['interval'] = tImage
 
@@ -272,7 +289,7 @@ class BinaryNoise(bases.StimulusBase):
 
         return
 
-    def saveMetadata(self, sessionFolder, correctHorizontalReflection=True):
+    def saveMetadata(self, sessionFolder):
         """
         """
 
@@ -281,14 +298,8 @@ class BinaryNoise(bases.StimulusBase):
             sessionFolderPath.mkdir()
 
         #
-        output = self.metadata.copy()
-        if correctHorizontalReflection:
-            # TODO: Reorganized coordinates from top to bottom, left to right
-            pass
-
-        #
         with open(sessionFolderPath.joinpath('binaryNoiseMetadata.pkl'), 'wb') as stream:
-            pickle.dump(output, stream)
+            pickle.dump(self.metadata, stream)
 
         return
 
@@ -298,34 +309,44 @@ class JitteredNoise(bases.StimulusBase):
 
     def _generateMetadata(
         self,
-        cycle,
-        duration,
+        nImages,
+        repeats,
         probability,
         nSubregions,
         shiftInPixels,
         coordsInPixels,
         gridShape,
+        randomize,
         ):
         """
         """
 
         #
-        tBlock = 2 * np.sum(cycle)
-        nBlocks = duration // tBlock
-        nTrials = int(nBlocks * 2)
-
-        #
+        nTrials = nImages * 2 * repeats
         gridHeight, gridWidth = gridShape
         self.metadata = {
+
+            # Values for each of the subregions on the ith trial
             'fields': np.full([nTrials, gridHeight, gridWidth], np.nan).astype(np.float64),
-            'coords': np.full([nTrials, nSubregions, 2], np.nan), # coordinates (in pixels)
+
+            # x and y coordinates (in pixels) for each of the subregions on the ith trial
+            'coords': np.full([nTrials, nSubregions, 2], np.nan),
+
+            # x and y offsets (in degrees) for each subregion on the ith trial
+            'offsets': np.full([nTrials, 2], np.nan),
+
+            #
+            'shifted': np.full([nTrials, 1], False),
+
+            #
+            'masks': np.full([nTrials, nSubregions, 1], False)
         }
 
         # Generate the trial sequence
         iTrial = 0
-        while iTrial < nTrials:
+        for iBlock in range(nImages):
 
-            # Create a mask
+            # Generate a new image
             values = np.random.choice(
                 a=[1, -1],
                 size=gridShape,
@@ -340,14 +361,25 @@ class JitteredNoise(bases.StimulusBase):
                     offset = np.array([0, 0])
                 else:
                     offset = np.random.choice([-1, 1], size=2) * (np.array([0, 0]) + shiftInPixels)
-                coords = np.around(coordsInPixels + offset, 2)
+                coords = np.around(coordsInPixels + offset, 2) 
 
                 #
-                self.metadata['coords'][iTrial] = coords
-                self.metadata['fields'][iTrial] = values
+                for iRepeat in range(repeats):
 
-                #
-                iTrial += 1
+                    #
+                    self.metadata['coords'][iTrial] = coords
+                    self.metadata['fields'][iTrial] = values
+                    self.metadata['offsets'][iTrial] = np.around(offset / self.display.ppd, 2)
+                    self.metadata['shifted'][iTrial] = True if phase == 'shifted' else False
+                    self.metadata['masks'][iTrial] = np.array(values == 1).reshape(-1, 1)
+                    iTrial += 1
+
+        # Randomize the sequence of images    
+        if randomize:
+            shuffle = np.arange(nTrials)
+            np.random.shuffle(shuffle)
+            for key in ('fields', 'coords', 'offsets', 'shifted', 'masks'):
+                self.metadata[key] = self.metadata[key][shuffle]    
 
         return
 
@@ -361,6 +393,9 @@ class JitteredNoise(bases.StimulusBase):
         """
         """
 
+        # Change the background to black and idle
+        if self.display.backgroundColor != -1:
+            self.display.backgroundColor = -1
         self.display.idle(tIdle, units='seconds')
 
         #
@@ -385,9 +420,12 @@ class JitteredNoise(bases.StimulusBase):
                 self.display.flip(clearBuffer=False)
 
             # ITI
+            nFramesITI = int(np.ceil(cycle[1] * self.display.fps))
+            if nFramesITI == 0:
+                continue
             self.display.signalEvent(3, units='frames')
             self.display.drawBackground()
-            for iFrame in range(int(np.ceil(cycle[1] * self.display.fps))):
+            for iFrame in range(nFramesITI):
                 self.display.flip(clearBuffer=False)
 
         self.display.idle(tIdle, units='seconds')
@@ -397,12 +435,13 @@ class JitteredNoise(bases.StimulusBase):
     def present(
         self,
         length=10,
-        repeats=1, # TODO: Implement this
-        duration=10,
+        repeats=1,
+        nImages=10,
         cycle=(0.5, 0.5),
         probability=0.2,
         randomize=True,
         tIdle=3,
+        correctVerticalReflection=True,
         ):
         """
         """
@@ -428,30 +467,18 @@ class JitteredNoise(bases.StimulusBase):
         # Create the metadata container
         shiftInPixels = round(length / 2 * self.display.ppd, 2)
         self._generateMetadata(
-            cycle,
-            duration,
+            nImages,
+            repeats,
             probability,
             nSubregions,
             shiftInPixels,
             coordsInPixels,
-            gridShape
+            gridShape,
+            randomize
         )
 
         # Determine the total number of trials
-        tBlock = 2 * np.sum(cycle)
-        nBlocks = duration // tBlock
-        nTrials = int(nBlocks * 2)
-
-        # Randomize the trials
-        if randomize:
-            shuffle = np.arange(nTrials)
-            np.random.shuffle(shuffle)
-            for key in ('fields', 'coords'):
-                self.metadata[key] = self.metadata[key][shuffle]
-
-        # Change the background to black and wait 5 seconds
-        if self.display.backgroundColor != -1:
-            self.display.backgroundColor = -1
+        nTrials = self.metadata['fields'].shape[0]
 
         # Run main presentation loop
         self._runMainLoop(
@@ -461,22 +488,23 @@ class JitteredNoise(bases.StimulusBase):
             tIdle
         )
 
+        # Process metadata before saving
+        self.metadata['length'] = length
+        self.metadata['cycle'] = cycle
+        self.metadata['coords'] = np.around(self.metadata['coords'] / self.display.ppd, 2)
+        if correctVerticalReflection:
+            self.metadata['coords'][:, :, 1] = -1 * self.metadata['coords'][:, :, 1] # Reflect the coords over the horizontal axis
+            self.metadata['offsets'][:, 1] = self.metadata['offsets'][:, 1] * -1 # Reflect the offsets over the horizontal axis
+
         return
 
-    def saveMetadata(self, sessionFolder, correctVerticalReflection=False):
+    def saveMetadata(self, sessionFolder):
         """
         """
 
         sessionFolderPath = pl.Path(sessionFolder)
         if sessionFolderPath.exists() == False:
             sessionFolderPath.mkdir()
-
-
-        #
-        output = self.metadata.copy()
-        if correctVerticalReflection:
-            output['fields'] = np.flip(self.metadata['fields'], axis=1)
-            output['coords'][:, :, 1] = -1 * self.metadata['coords'][:, :, 1]
 
         #
         with open(sessionFolderPath.joinpath('jitteredNoiseMetadata.pkl'), 'wb') as stream:

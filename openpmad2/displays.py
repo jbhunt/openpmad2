@@ -120,7 +120,7 @@ class WarpedWindow(Window):
         if returnFirstTimestamp:
             return timestamp
 
-    def signalEvent(self, duration=3, units='frames', mc=False):
+    def signalEvent(self, duration=3, units='frames', mc=True):
         """
         Flash the visual patch for a specific amount of time
 
@@ -144,7 +144,8 @@ class WarpedWindow(Window):
 
         #
         if mc == True and self._mc is not None:
-            self._mc.signal()
+            self.callOnFlip(self._mc.signal)
+            # self._mc.signal()
 
         return
 

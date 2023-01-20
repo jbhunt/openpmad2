@@ -4,6 +4,7 @@ from psychopy.visual import Window
 from psychopy.visual.windowwarp import Warper
 from psychopy.visual import GratingStim, ImageStim
 from . import warping
+from myphdlib.general.teensy import Microcontroller
 
 _lowStateTexture = np.full([16, 16], -1).astype(np.int8)
 _highStateTexture = np.full([16, 16], 1).astype(np.int8)
@@ -76,6 +77,10 @@ class WarpedWindow(Window):
         self._background.draw()
         self.flip()
 
+        #
+        self._mc = None
+        self._pulsing = False 
+
         return
 
     def flip(self, drawSignalPatch=True, **kwargs):
@@ -115,7 +120,7 @@ class WarpedWindow(Window):
         if returnFirstTimestamp:
             return timestamp
 
-    def signalEvent(self, duration=3, units='frames'):
+    def signalEvent(self, duration=3, units='frames', mc=False):
         """
         Flash the visual patch for a specific amount of time
 
@@ -127,6 +132,7 @@ class WarpedWindow(Window):
             Unit of time (frames or seconds)
         """
 
+        #
         self._patch.tex = _highStateTexture
         self._state = True
         if units == 'frames':
@@ -135,6 +141,10 @@ class WarpedWindow(Window):
             self._countdown = round(self.fps * duration)
         else:
             raise Exception(f'{units} is an invalid unit of time')
+
+        #
+        if mc == True and self._mc is not None:
+            self._mc.signal()
 
         return
 
@@ -155,11 +165,33 @@ class WarpedWindow(Window):
 
         return
 
-    def getNumpyArray(self, buffer='back'):
+    def getCurrentFrameAsArray(self, buffer='back'):
         """
         """
 
         return np.array(self.getMovieFrame(buffer=buffer).convert('L'))
+
+    def connectMicrocontroller(
+        self,
+        ):
+        """
+        """
+
+        self._mc = Microcontroller()
+        self._mc.connect()
+
+        return
+
+    def close(self):
+        """
+        """
+
+        if self._mc is not None:
+            self._mc.release()
+            self._mc = None
+        super().close()
+
+        return
 
     @property
     def width(self):

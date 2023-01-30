@@ -16,18 +16,19 @@ def make_alpha_mask(shape=(720, 1280), margin=30, sigma=10, low=-1, high=1):
 
     return clipped
 
-def cycleSignalPatch(display, cycle=(1, 1)):
+def cycleSignalPatch(display, cycle=(1, 1), nCycles=1):
     """
     """
 
-    display.state = True
-    for iFrame in range(int(round(display.fps * cycle[0]))):
-        display.drawBackground()
-        display.flip()
+    for iCycle in range(nCycles):
+        display.state = True
+        for iFrame in range(int(round(display.fps * cycle[0]))):
+            display.drawBackground()
+            display.flip()
 
-    display.state = False
-    for iFrame in range(int(range(display.fps * cycle[1]))):
-        display.drawBackground()
-        display.flip()
+        display.state = False
+        for iFrame in range(int(round(display.fps * cycle[1]))):
+            display.drawBackground()
+            display.flip()
 
     return

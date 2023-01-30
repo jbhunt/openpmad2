@@ -27,7 +27,7 @@ def cycleSignalPatch(display, cycle=(1, 1), nCycles=1):
             display.flip()
 
         display.state = False
-        for iFrame in range(int(range(display.fps * cycle[1]))):
+        for iFrame in range(int(round(display.fps * cycle[1]))):
             display.drawBackground()
             display.flip()
 

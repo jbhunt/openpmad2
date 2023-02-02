@@ -81,7 +81,10 @@ class SparseNoise(bases.StimulusBase):
             'coords': np.full([nTrials, 2], np.nan),
 
             # indices which indicates the subregion illuminated on the ith trial
-            'indices': np.full([nTrials, 1], 0).astype(np.int64)
+            'indices': np.full([nTrials, 1], 0).astype(np.int64),
+                                                       
+            # A list of event names (either spot or flash)
+            'events': np.full([nTrials * 2, 1], '').astype(np.chararray)
         }
 
         #
@@ -114,6 +117,7 @@ class SparseNoise(bases.StimulusBase):
         tIdle,
         cycle,
         nTrials,
+        nTrialsBetweenSignals,
         ):
         """
         """
@@ -122,7 +126,15 @@ class SparseNoise(bases.StimulusBase):
             self.display.backgroundColor = -1
         self.display.idle(tIdle)
 
+        iEvent = 0
         for iTrial in range(nTrials):
+
+            # Only signal the trial once every N trials
+            # This can be disabled by setting 'nTiralsBetweenSignals' equal to 1
+            if iTrial % nTrialsBetweenSignals == 0:
+                signal = True
+            else:
+                signal = False
 
             #
             iSubregion = self.metadata['indices'][iTrial]
@@ -131,7 +143,10 @@ class SparseNoise(bases.StimulusBase):
             field.colors = colors.reshape(-1, 1)
             
             #
-            self.display.signalEvent(3, units='frames')
+            if signal:
+                self.display.signalEvent(3, units='frames')
+                self.metadata['events'][iEvent] = 'spot onset'
+                iEvent += 1
             for iFrame in range(int(np.ceil(cycle[0] * self.display.fps))):
                 field.draw()
                 self.display.flip()
@@ -141,11 +156,15 @@ class SparseNoise(bases.StimulusBase):
             field.colors = colors
 
             #
-            self.display.signalEvent(3, units='frames')
+            if signal:
+                self.display.signalEvent(3, units='frames')
+                self.metadata['events'][iEvent] = 'spot offset'    
+                iEvent += 1
             for iFrame in range(int(np.ceil(cycle[1] * self.display.fps))):
                 field.draw()
                 self.display.flip()
 
+        #
         self.display.idle(tIdle)
 
         return
@@ -157,7 +176,8 @@ class SparseNoise(bases.StimulusBase):
         repeats=1,
         tIdle=3,
         randomize=True,
-        correctVerticalReflection=True
+        correctVerticalReflection=True,
+        nTrialsBetweenSignals=1,
         ):
         """
         """
@@ -198,7 +218,17 @@ class SparseNoise(bases.StimulusBase):
         self.metadata['cycle'] = cycle
 
         # Run main loop
-        self._runMainLoop(field, tIdle, cycle, nTrials)
+        self._runMainLoop(
+            field,
+            tIdle,
+            cycle,
+            nTrials,
+            nTrialsBetweenSignals
+        )
+
+        #
+        mask = np.array([len(line.item()) > 0 for line in self.metadata['events']])
+        self.metadata['events'] = self.metadata['events'][mask].flatten()
 
         return
 
@@ -216,18 +246,150 @@ class SparseNoise(bases.StimulusBase):
 
         return    
 
-class BinaryNoise(bases.StimulusBase):
+class SimpleBinaryNoise(bases.StimulusBase):
     """
     """
+    
+    def _generateMetadata(
+        self,
+        gridShape,
+        coordsInDegrees,
+        correctVerticalReflection,
+        length,
+        tImage,
+        nImagesBetweenFlashes,
+        nImages,
+        pHigh,
+        ):
+        """
+        """
+
+        # Take care of the easy stuff
+        gridHeight, gridWidth = gridShape
+        nSubregions = gridHeight * gridWidth
+
+        #
+        self.metadata = {
+            'events': list(),
+            'fields': list(),
+            'coords': coordsInDegrees,
+            'length': length,
+            'interval': tImage
+        }
+
+        # Reflect coordinates across the horizontal axis
+        if correctVerticalReflection:
+            self.metadata['coords'][:, 1] = self.metadata['coords'][:, 1] * -1
+
+        #
+        countdown = nImagesBetweenFlashes
+
+        for iField in range(nImages):
+
+            # Full-field flash
+            if countdown == 0:
+                
+                #
+                for event in ('flash onset', 'flash offset'):
+                    self.metadata['events'].append(event)
+                    self.metadata['fields'].append(np.full(gridShape, np.nan))
+                countdown = nImagesBetweenFlashes
+
+            # Generate new field
+            colors = np.random.choice(
+            a=np.array([-1, 1]),
+            p=np.array([1 - pHigh, pHigh]),
+            size=nSubregions
+            ).reshape(*gridShape)
+            self.metadata['fields'].append(colors)
+            self.metadata['events'].append('field onset')
+            countdown -= 1
+
+        # Cast to numpy arrays
+        self.metadata['fields'] = np.array(self.metadata['fields'])
+        self.metadata['events'] = np.array(self.metadata['events'], dtype=object).reshape(-1, 1)
+
+        return
+    
+    def _runMainLoop(
+        self,
+        tImage,
+        tIdle,
+        field,
+        nTrialsBetweenSignals,
+        ):
+        """
+        """
+
+        # Change the background to black and wait 5 seconds
+        if self.display.backgroundColor != -1:
+            self.display.backgroundColor = -1
+        self.display.idle(tIdle, units='seconds')
+
+        #
+        nTrials = self.metadata['fields'].shape[0]
+        iterable = zip(
+            range(nTrials),
+            self.metadata['events'],
+            self.metadata['fields']
+        )
+        for iTrial, event, colors in iterable:
+
+            # Only signal the trial once every N trials
+            # This can be disabled by setting 'nTiralsBetweenSignals' equal to 1
+            if iTrial % nTrialsBetweenSignals == 0:
+                signal = True
+            else:
+                signal = False
+
+            # Full-field flash onset
+            if event == 'flash onset':
+                self.display.setBackgroundColor(1)
+                if signal:
+                    self.display.signalEvent(3, units='frames')
+                for iFrame in range(int(np.ceil(tImage * self.display.fps))):
+                    self.display.drawBackground()
+                    self.display.flip()
+
+            # Full-field flash offset
+            elif event == 'flash offset':
+                self.display.setBackgroundColor(-1)
+                if signal:
+                    self.display.signalEvent(3, units='frames')
+                for iFrame in range(int(np.ceil(tImage * self.display.fps))):
+                    self.display.drawBackground()
+                    self.display.flip()
+
+            # Present the stimulus field
+            elif event == 'field onset':
+
+                #
+                field.colors = colors.reshape(-1, 1)
+
+                #
+                if signal:
+                    self.display.signalEvent(3, units='frames')
+
+                #
+                for iFrame in range(int(np.ceil(tImage * self.display.fps))):
+                    field.draw()
+                    self.display.flip()
+
+        # Display black screen for 5 seconds
+        self.display.idle(tIdle, units='seconds')
+
+        return
 
     def present(
         self,
         length=5,
-        tImage=0.05,
-        tPresent=3,
+        tImage=0.5,
+        nImages=10,
         pHigh=0.2,
         tIdle=3,
         correctVerticalReflection=True,
+        nImagesBetweenFlashes=5,
+        nTrialsBetweenSignals=1,
         ):
         """
         """
@@ -250,42 +412,30 @@ class BinaryNoise(bases.StimulusBase):
             units='pixels', 
         )
 
-        # Change the background to black and wait 5 seconds
-        if self.display.backgroundColor != -1:
-            self.display.backgroundColor = -1
-        self.display.idle(tIdle, units='seconds')
-
         # Populate the metadata dictionary
-        nTrials = int(tPresent // tImage)
-        self.metadata = {
-            'fields': np.full([nTrials, gridHeight, gridWidth], 0).astype(np.float64),
-            'coords': coordsInDegrees,
-        }
-        if correctVerticalReflection:
-            self.metadata['coords'][:, 1] = self.metadata['coords'][:, 1] * -1
-        self.metadata['length'] = length
-        self.metadata['interval'] = tImage
+        gridShape = (gridHeight, gridWidth)
+        self._generateMetadata(
+            gridShape,
+            coordsInDegrees,
+            correctVerticalReflection,
+            length,
+            tImage,
+            nImagesBetweenFlashes,
+            nImages,
+            pHigh,
+        )
 
         #
-        for iTrial in range(nTrials):
+        self._runMainLoop(
+            tImage,
+            tIdle,
+            field,
+            nTrialsBetweenSignals,
+        )
 
-            #
-            colors = np.random.choice(
-                a=np.array([-1, 1]),
-                p=np.array([1 - pHigh, pHigh]),
-                size=nSubregions
-            ).reshape(-1, 1)
-            field.colors = colors
-
-            #
-            self.display.signalEvent(3, units='frames')
-            for iFrame in range(int(np.ceil(tImage * self.display.fps))):
-                field.draw()
-                self.metadata['fields'][iTrial] = colors.reshape(gridHeight, gridWidth)
-                self.display.flip()
-
-        # Display black screen for 5 seconds
-        self.display.idle(tIdle, units='seconds')
+        # Clean up the events metadata array
+        mask = np.array([len(line.item()) > 0 for line in self.metadata['events']])
+        self.metadata['events'] = self.metadata['events'][mask].flatten()
 
         return
 
@@ -303,92 +453,195 @@ class BinaryNoise(bases.StimulusBase):
 
         return
 
-class JitteredNoise(bases.StimulusBase):
+class JitteredBinaryNoise(bases.StimulusBase):
     """
     """
+
+    def _randomizeTrials(
+        self,
+        ):
+        """
+        """
+
+        nTrials = len(
+            self.metadata['events'])
+        shuffledTrialIndices = np.random.choice(
+            np.arange(nTrials),
+            size=nTrials
+        )
+
+        for key, oldList in self.metadata.items():
+
+            #
+            newList = list()
+            for iTrial in shuffledTrialIndices:
+                newList.append(oldList[iTrial])
+
+            #
+            self.metadata[key] = newList
+
+        return
+
+    def _insertFlashes(
+        self,
+        cycle,
+        nSubregions,
+        nTrialsBetweenFlashes
+        ):
+        """
+        """
+
+        # Insert full-field flashes
+        for key, oldList in self.metadata.items():
+
+            # Determine the fill values
+            if key == 'events':
+                inserts = ('flash onset', 'flash offset')
+                dtype = object
+            elif key == 'shifted':
+                inserts = (False, False)
+                dtype = bool
+            elif key == 'fields':
+                shape = (nSubregions, 1)
+                inserts = (
+                    np.full(shape, True),
+                    np.full(shape, False),
+                )
+                dtype = bool
+            elif key == 'colors':
+                shape = (nSubregions, 1)
+                inserts = (
+                    np.full(shape, 1),
+                    np.full(shape, -1),
+                )
+                dtype = float
+            elif key == 'offsets':
+                inserts = (
+                    np.full(2, np.nan),
+                    np.full(2, np.nan)
+                )
+                dtype = float
+
+            # Create the new list
+            newList = list()
+            if cycle[1] != 0:
+                factor = 2
+            else:
+                factor = 1
+            countdown = nTrialsBetweenFlashes * factor
+            for iElement, element in enumerate(oldList):
+                if countdown == 0:
+                    for insert in inserts:
+                        newList.append(insert)
+                    countdown = nTrialsBetweenFlashes * factor
+                newList.append(element)
+                countdown -= 1
+
+            #
+            self.metadata[key] = np.array(newList, dtype=dtype)
+
+        return
 
     def _generateMetadata(
         self,
         nImages,
         repeats,
-        probability,
+        pHigh,
         nSubregions,
-        shiftInPixels,
+        shiftInDegrees,
         coordsInPixels,
-        gridShape,
         randomize,
+        length,
+        correctVerticalReflection,
+        nTrialsBetweenFlashes,
+        cycle,
+        gridShape
         ):
         """
         """
 
-        #
-        nTrials = nImages * 2 * repeats
-        gridHeight, gridWidth = gridShape
         self.metadata = {
-
-            # Values for each of the subregions on the ith trial
-            'fields': np.full([nTrials, gridHeight, gridWidth], np.nan).astype(np.float64),
-
-            # x and y coordinates (in pixels) for each of the subregions on the ith trial
-            'coords': np.full([nTrials, nSubregions, 2], np.nan),
-
-            # x and y offsets (in degrees) for each subregion on the ith trial
-            'offsets': np.full([nTrials, 2], np.nan),
-
-            #
-            'shifted': np.full([nTrials, 1], False),
-
-            #
-            'masks': np.full([nTrials, nSubregions, 1], False)
+            'events': list(),
+            'fields': list(),
+            'colors': list(),
+            'offsets': list(),
+            'shifted' : list()
         }
 
-        # Generate the trial sequence
-        iTrial = 0
-        for iBlock in range(nImages):
+        #
+        for iTrial in range(nImages):
 
-            # Generate a new image
-            values = np.random.choice(
-                a=[1, -1],
-                size=gridShape,
-                p=[probability, 1 - probability],
-            )
+            # Generate a new field
+            mask = np.random.choice(
+                np.array([True, False]),
+                p=np.array([pHigh, 1 - pHigh]),
+                size=nSubregions
+            ).reshape(-1, 1)
 
-            # Iterate through each phase: original/shifted
+            # Create a colors array from the field
+            colors = np.array([
+                1 if flag else -1
+                    for flag in mask.flatten()
+            ]).reshape(-1, 1)
+
+            # Shift (or don't shift) the field
             for phase in ('original', 'shifted'):
-
-                # Compute the spatial offset
-                if phase == 'original':
+                
+                # Choose an offset
+                if phase == 'shifted':
+                    offset = np.array([shiftInDegrees, shiftInDegrees]) * np.random.choice([-1, 1], size=2)
+                elif phase == 'original':
                     offset = np.array([0, 0])
-                else:
-                    offset = np.random.choice([-1, 1], size=2) * (np.array([0, 0]) + shiftInPixels)
-                coords = np.around(coordsInPixels + offset, 2) 
 
                 #
                 for iRepeat in range(repeats):
+                    for event in ('field onset', 'field offset'):
 
-                    #
-                    self.metadata['coords'][iTrial] = coords
-                    self.metadata['fields'][iTrial] = values
-                    self.metadata['offsets'][iTrial] = np.around(offset / self.display.ppd, 2)
-                    self.metadata['shifted'][iTrial] = True if phase == 'shifted' else False
-                    self.metadata['masks'][iTrial] = np.array(values == 1).reshape(-1, 1)
-                    iTrial += 1
+                        #
+                        if event == 'field onset':
+                            self.metadata['fields'].append(mask)
+                            self.metadata['colors'].append(colors)
+                            self.metadata['offsets'].append(offset)
+                            self.metadata['shifted'].append(True if phase == 'shifted' else False)
+                            self.metadata['events'].append(event)
 
-        # Randomize the sequence of images    
+                        #
+                        elif event == 'field offset' and cycle[-1] != 0:
+                            self.metadata['fields'].append(np.full([nSubregions, 1], False))
+                            self.metadata['colors'].append(np.full([nSubregions, 1], np.nan))
+                            self.metadata['offsets'].append(np.full(2, np.nan))
+                            self.metadata['shifted'].append(False)
+                            self.metadata['events'].append(event)                       
+
+        # Randomize trials
         if randomize:
-            shuffle = np.arange(nTrials)
-            np.random.shuffle(shuffle)
-            for key in ('fields', 'coords', 'offsets', 'shifted', 'masks'):
-                self.metadata[key] = self.metadata[key][shuffle]    
+            self._randomizeTrials()
+
+        #
+        if nTrialsBetweenFlashes is not None:
+            self._insertFlashes(
+                cycle,
+                nSubregions,
+                nTrialsBetweenFlashes
+            )
+
+        #
+        self.metadata['length'] = length
+        self.metadata['coords'] = coordsInPixels
+        self.metadata['shape'] = gridShape
+
+        #
+        if correctVerticalReflection:
+            self.metadata['coords'][:, 1] = self.metadata['coords'][:, 1] * -1
 
         return
-
+    
     def _runMainLoop(
         self,
-        nTrials,
         field,
         cycle,
         tIdle,
+        nTrialsBetweenSignals,
         ):
         """
         """
@@ -399,36 +652,57 @@ class JitteredNoise(bases.StimulusBase):
         self.display.idle(tIdle, units='seconds')
 
         #
-        for iTrial in range(nTrials):
+        originFieldPosition = field.fieldPos
+
+        #
+        iterable = zip(
+            self.metadata['events'],
+            self.metadata['colors'],
+            self.metadata['offsets']
+        )
+        for iTrial, (event, colors, offset) in enumerate(iterable):
+
+            # Only signal the trial once every N trials
+            # This can be disabled by setting 'nTiralsBetweenSignals' equal to 1
+            if iTrial % nTrialsBetweenSignals == 0:
+                signal = True
+            else:
+                signal = False
 
             #
-            self.display.clearBuffer()
+            if event == 'field onset':
+                self.display.clearBuffer()
+                field.fieldPos = offset * self.display.ppd + originFieldPosition
+                field.colors = colors
+                methodToCall = field.draw
+                nFramesToDraw = int(np.ceil(cycle[0] * self.display.fps))
 
-            # Set a new field pattern
-            field.fieldPos = self.metadata['coords'][iTrial]
-            field.colors = self.metadata['fields'][iTrial].reshape(field.nElements, 1)
-            field.draw()
+            #
+            elif event == 'field offset':
+                self.display.setBackgroundColor(-1)
+                methodToCall = self.display.drawBackground
+                nFramesToDraw = int(np.ceil(cycle[1] * self.display.fps))
 
-            # Save a copy of the stimulus
-            image = np.array(
-                self.display.getMovieFrame(buffer='back').convert('L').transpose(Image.FLIP_TOP_BOTTOM)
-            )
+            #
+            elif event == 'flash onset':
+                self.display.setBackgroundColor(1)
+                methodToCall = self.display.drawBackground
+                nFramesToDraw = int(np.ceil(cycle[0] * self.display.fps))
 
-            # Present the field
-            self.display.signalEvent(3, units='frames')
-            for iFrame in range(int(np.ceil(cycle[0] * self.display.fps))):
-                self.display.flip(clearBuffer=False)
+            #
+            elif event == 'flash offset':
+                self.display.setBackgroundColor(-1)
+                methodToCall = self.display.drawBackground
+                nFramesToDraw = int(np.ceil(cycle[0] * self.display.fps))
 
-            # ITI
-            nFramesITI = int(np.ceil(cycle[1] * self.display.fps))
-            if nFramesITI == 0:
-                continue
-            self.display.signalEvent(3, units='frames')
-            self.display.drawBackground()
-            for iFrame in range(nFramesITI):
-                self.display.flip(clearBuffer=False)
+            if signal:
+                self.display.signalEvent(3, units='frames')
+            for iFrame in range(nFramesToDraw):
+                methodToCall()
+                self.display.flip()
 
-        self.display.idle(tIdle, units='seconds')
+        #
+        self.display.idle(tIdle)
 
         return
 
@@ -436,12 +710,14 @@ class JitteredNoise(bases.StimulusBase):
         self,
         length=10,
         repeats=1,
-        nImages=10,
+        nImages=20,
         cycle=(0.5, 0.5),
-        probability=0.2,
+        pHigh=0.2,
         randomize=True,
         tIdle=3,
         correctVerticalReflection=True,
+        nTrialsBetweenFlashes=5,
+        nTrialsBetweenSignals=1,
         ):
         """
         """
@@ -449,7 +725,7 @@ class JitteredNoise(bases.StimulusBase):
         #
         coordsInPixels, gridShape = _computeGridPoints(length, self.display)
         nSubregions = coordsInPixels.shape[0]
-        initialColors = np.random.choice([-1, 1], p=[1 - probability, probability], size=nSubregions).reshape(-1, 1)
+        initialColors = np.random.choice([-1, 1], p=[1 - pHigh, pHigh], size=nSubregions).reshape(-1, 1)
 
         # Create the visual field
         field = visual.ElementArrayStim(
@@ -465,36 +741,31 @@ class JitteredNoise(bases.StimulusBase):
         )
 
         # Create the metadata container
-        shiftInPixels = round(length / 2 * self.display.ppd, 2)
+        # shiftInPixels = round(length / 2 * self.display.ppd, 2)
+        shiftInDegrees = round(length / 2, 2)
         self._generateMetadata(
             nImages,
             repeats,
-            probability,
+            pHigh,
             nSubregions,
-            shiftInPixels,
+            shiftInDegrees,
             coordsInPixels,
-            gridShape,
-            randomize
+            randomize,
+            length,
+            correctVerticalReflection,
+            nTrialsBetweenFlashes,
+            cycle,
+            gridShape
         )
 
-        # Determine the total number of trials
-        nTrials = self.metadata['fields'].shape[0]
 
         # Run main presentation loop
         self._runMainLoop(
-            nTrials,
             field,
             cycle,
-            tIdle
+            tIdle,
+            nTrialsBetweenSignals
         )
-
-        # Process metadata before saving
-        self.metadata['length'] = length
-        self.metadata['cycle'] = cycle
-        self.metadata['coords'] = np.around(self.metadata['coords'] / self.display.ppd, 2)
-        if correctVerticalReflection:
-            self.metadata['coords'][:, :, 1] = -1 * self.metadata['coords'][:, :, 1] # Reflect the coords over the horizontal axis
-            self.metadata['offsets'][:, 1] = self.metadata['offsets'][:, 1] * -1 # Reflect the offsets over the horizontal axis
 
         return
 

@@ -65,6 +65,22 @@ def load_wfile_data(date='2022-08-25'):
 
     return
 
+def getWarpfile(date):
+    """
+    """
+
+    wfile = None    
+    cwd = pl.Path(__file__)
+    folder = cwd.parent.joinpath('data', 'warpfiles')
+    result = folder.rglob(f'*warpfile*')
+    for file in result:
+        if date in str(file):
+            path = pl.Path().joinpath(folder, file)
+            wfile = str(path)
+            break
+
+    return wfile
+
 load_wfile_data()
 
 def warp(image, rescale=False):

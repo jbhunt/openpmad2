@@ -271,3 +271,13 @@ class WarpedWindow(Window):
         self._backgroundColor = color
         self._background.draw()
         self.flip()
+
+    def setBackgroundColor(self, color):
+        """
+        """
+        if color < -1 or color > 1:
+            raise Exception('Background color must be in the range (-1, 1)')
+        self._background.tex = np.full(self._textureShape, color)
+        self._backgroundColor = color
+        return
+

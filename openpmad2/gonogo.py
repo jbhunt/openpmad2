@@ -323,8 +323,8 @@ class DriftingGratingWithVariableProbe():
 
         filename = str(sessionFolderPath.joinpath('driftingGratingWithProbeMetadata.txt'))
         with open(filename, 'w') as stream:
-            stream.write(f'Trial number, Probe contrast, Motion\n')
-            for trialNumber, probeContrast, timestamp in self.metadata:
-                stream.write(f'{trialNumber:.0f}, {probeContrast:.3f}, {timestamp:.3f}\n')
+            stream.write(f'Trial number, Probe contrast, Motion, Timestamp\n')
+            for trialNumber, probeContrast, motion, timestamp in self.metadata:
+                stream.write(f'{trialNumber:.0f}, {probeContrast:.3f}, {motion:.0f}, {timestamp:.3f}\n')
 
         return

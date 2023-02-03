@@ -23,7 +23,7 @@ class WarpedWindow(Window):
         fullScreen=False,
         patchCoords=(-7, 345, 40, 66),
         textureShape=(16, 16),
-        date='2021-09-07'
+        date='2022-08-25'
         ):
         """
         """

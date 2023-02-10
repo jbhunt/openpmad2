@@ -22,7 +22,8 @@ class WarpedWindow(Window):
         color=0,
         fullScreen=False,
         patchCoords=(-7, 345, 40, 66),
-        textureShape=(16, 16)
+        textureShape=(16, 16),
+        date='2022-08-25'
         ):
         """
         """
@@ -51,7 +52,7 @@ class WarpedWindow(Window):
             fullscr=fullScreen,
         )
 
-        self._warper = Warper(self, warp='warpfile', warpfile=warping.WARPFILE)
+        self._warper = Warper(self, warp='warpfile', warpfile=warping.getWarpfile(date))
 
         #
         self._state = False
@@ -120,7 +121,7 @@ class WarpedWindow(Window):
         if returnFirstTimestamp:
             return timestamp
 
-    def signalEvent(self, duration=3, units='frames', mc=True):
+    def signalEvent(self, duration=3, units='frames', mc=False):
         """
         Flash the visual patch for a specific amount of time
 
@@ -146,6 +147,15 @@ class WarpedWindow(Window):
         if mc == True and self._mc is not None:
             self.callOnFlip(self._mc.signal)
             # self._mc.signal()
+
+        return
+
+    def emitSignal(self):
+        """
+        """
+
+        if self._mc is not None:
+            self._mc.signal()
 
         return
 

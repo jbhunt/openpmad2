@@ -109,6 +109,10 @@ class MovingBars(StimulusBase):
         frameIndexCenterCrossed = int(np.ceil(stepValues.size / 2))
 
         #
+        if self.display.backgroundColor != -1:
+            self.display.setBackgroundColor(-1)
+
+        #
         self.display.idle(3, units='seconds')
 
         #

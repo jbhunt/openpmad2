@@ -653,6 +653,8 @@ class JitteredBinaryNoise(bases.StimulusBase):
 
         #
         originFieldPosition = field.fieldPos
+        nFramesOnPhase = int(np.ceil(self.display.fps * cycle[0]))
+        nFramesOffPhase = int(np.ceil(self.display.fps * cycle[1]))
 
         #
         iterable = zip(
@@ -675,25 +677,25 @@ class JitteredBinaryNoise(bases.StimulusBase):
                 field.fieldPos = offset * self.display.ppd + originFieldPosition
                 field.colors = colors
                 methodToCall = field.draw
-                nFramesToDraw = int(np.ceil(cycle[0] * self.display.fps))
+                nFramesToDraw = nFramesOnPhase
 
             #
             elif event == 'field offset':
                 self.display.setBackgroundColor(-1)
                 methodToCall = self.display.drawBackground
-                nFramesToDraw = int(np.ceil(cycle[1] * self.display.fps))
+                nFramesToDraw = nFramesOffPhase
 
             #
             elif event == 'flash onset':
                 self.display.setBackgroundColor(1)
                 methodToCall = self.display.drawBackground
-                nFramesToDraw = int(np.ceil(cycle[0] * self.display.fps))
+                nFramesToDraw = nFramesOnPhase
 
             #
             elif event == 'flash offset':
                 self.display.setBackgroundColor(-1)
                 methodToCall = self.display.drawBackground
-                nFramesToDraw = int(np.ceil(cycle[0] * self.display.fps))
+                nFramesToDraw = nFramesOffPhase
 
             if signal:
                 self.display.signalEvent(3, units='frames')

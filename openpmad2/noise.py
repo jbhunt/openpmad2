@@ -782,3 +782,237 @@ class JitteredBinaryNoise(bases.StimulusBase):
             pickle.dump(self.metadata, stream)
 
         return
+    
+class JitteredBinaryNoise2(bases.StimulusBase):
+    """
+    """
+
+    def _generateMetadata(
+        self,
+        nImagesPerBlock,
+        nBlocksPerCondition,
+        nBlockRepeats,
+        includeJitteredBlocks,
+        pSubregionHigh,
+        nSubregions,
+        ):
+        """
+        """
+
+        #
+        nConditions = 2 if includeJitteredBlocks else 1
+        nUniqueImages = nConditions * nBlocksPerCondition * nBlockRepeats * nImagesPerBlock
+
+        #
+        self.metadata = {
+            'blocks': np.full([nUniqueImages, 1], np.nan),
+            'events': np.full([10000000, 1], '').astype(object),
+            'values': np.full([nUniqueImages, nSubregions, 1], np.nan),
+            'jittered' : np.full([nUniqueImages, 1], False)
+        }
+
+        #
+        for iTrial in range(nUniqueImages):
+            values = np.random.choice(
+                np.array([1, -1]),
+                p=np.array([pSubregionHigh, 1 - pSubregionHigh]),
+                size=nSubregions
+            ).reshape(-1, 1)
+            self.metadata['values'][iTrial] = values
+
+        return
+    
+    def _runMainLoop(
+        self,
+        field,
+        fieldCycle,
+        nImagesPerBlock,
+        nBlocksPerCondition,
+        nBlockRepeats,
+        includeJitteredBlocks,
+        nSubregions,
+        offsetInPixels,
+        tIdle,
+        nTrialsBetweenFlashes,
+        flashCycle,
+        nSignalFramesForField,
+        nSignalFramesForFlash
+        ):
+        """
+        """
+
+        #
+        if includeJitteredBlocks:
+            conditions = ('original', 'jittered')
+        else:
+            conditions = ('original')
+
+        #
+        gridNodes = field.fieldPos
+
+        #
+        if self.display.backgroundColor != -1:
+            self.display.setBackgroundColor(-1)
+        for iFrame in range(int(np.ceil(self.display.fps * tIdle))):
+            self.display.drawBackground()
+            self.display.flip()
+
+        #
+        iTrial = 0
+        iEvent = 0
+        iBlock = 0
+        for condition in conditions:
+            for iBlock_ in range(nBlocksPerCondition):
+                for iRepeat in range(nBlockRepeats):
+                    for iField in range(nImagesPerBlock):
+
+                        # Present the full-field flash
+                        if iTrial % nTrialsBetweenFlashes == 0:
+
+                            #
+                            self.metadata['events'][iEvent] = 'flash onset'
+                            iEvent += 1
+                            self.display.signalEvent(nSignalFramesForFlash, units='frames')
+                            self.display.setBackgroundColor(1)
+                            for iFrame in range(int(np.ceil(self.display.fps * flashCycle[0]))):
+                                self.display.drawBackground()
+                                self.display.flip()
+
+                            #
+                            self.metadata['events'][iEvent] = 'flash offset'
+                            iEvent += 1
+                            self.display.setBackgroundColor(-1)
+                            self.display.signalEvent(nSignalFramesForFlash, units='frames')
+                            for iFrame in range(int(np.ceil(self.display.fps * flashCycle[1]))):
+                                self.display.drawBackground()
+                                self.display.flip()
+
+                        #
+                        values = self.metadata['values'][iTrial].reshape(nSubregions, 1)
+                        field.colors = values
+                        if condition == 'jittered':
+                            field.fieldPos = gridNodes + offsetInPixels
+                            self.metadata['jittered'][iTrial] = True
+                        else:
+                            self.metadata['jittered'][iTrial] = False
+
+                        #
+                        self.metadata['events'][iEvent] = 'field onset'
+                        iEvent += 1
+                        self.display.signalEvent(nSignalFramesForField, units='frames')
+                        for iFrame in range(int(np.ceil(self.display.fps * fieldCycle[0]))):
+                            field.draw()
+                            timestamp = self.display.flip()
+
+                        #
+                        self.metadata['events'][iEvent] = 'field offset'
+                        iEvent += 1
+                        self.display.signalEvent(nSignalFramesForField, units='frames')
+                        for iFrame in range(int(np.ceil(self.display.fps * fieldCycle[1]))):
+                            self.display.drawBackground()
+                            self.display.flip()
+
+                        #
+                        self.metadata['blocks'][iTrial] = iBlock + 1
+
+                        #
+                        iTrial += 1
+
+                    #
+                    iBlock += 1
+
+        #
+        mask = np.array([
+            len(element.item()) > 0
+                for element in self.metadata['events']
+        ])
+        self.metadata['events'] = self.metadata['events'][mask, :]
+
+        return
+    
+
+    def present(
+        self,
+        length=10,
+        fieldCycle=(0.5, 0.5),
+        nBlockRepeats=1,
+        nImagesPerBlock=10,
+        nBlocksPerCondition=1,
+        includeJitteredBlocks=True,
+        jitterDirection=(1, 1),
+        pSubregionHigh=0.2,
+        tIdle=3,
+        correctVerticalReflection=True,
+        nTrialsBetweenFlashes=5,
+        flashCycle=(1, 1),
+        nSignalFramesForField=3,
+        nSignalFramesForFlash=6,
+        ):
+        """
+        """
+
+        #
+        coordsInPixels, gridShape = _computeGridPoints(length, self.display)
+        nSubregions = coordsInPixels.shape[0]
+
+        # Create the visual field
+        field = visual.ElementArrayStim(
+            self.display,
+            fieldPos=coordsInPixels,
+            fieldShape='sqr',
+            nElements=nSubregions,
+            sizes=length * self.display.ppd,
+            elementMask=None,
+            elementTex=None,
+            units='pixels', 
+        )
+
+        #
+        self._generateMetadata(
+            nImagesPerBlock,
+            nBlocksPerCondition,
+            nBlockRepeats,
+            includeJitteredBlocks,
+            pSubregionHigh,
+            nSubregions,
+        )
+
+        #
+        offsetInPixels = np.full(2, round(length / 2 * self.display.ppd, 2)) * np.array(jitterDirection)
+        self._runMainLoop(
+            field,
+            fieldCycle,
+            nImagesPerBlock,
+            nBlocksPerCondition,
+            nBlockRepeats,
+            includeJitteredBlocks,
+            nSubregions,
+            offsetInPixels,
+            tIdle,
+            nTrialsBetweenFlashes,
+            flashCycle,
+            nSignalFramesForField,
+            nSignalFramesForFlash
+        )
+
+        #
+        self.metadata['coords'] = np.around(coordsInPixels / self.display.ppd, 2)
+        if correctVerticalReflection:
+            self.metadata['coords'][:, 1] *= -1
+        self.metadata['shape'] = gridShape
+        self.metadata['length'] = length
+
+        return
+    
+    def saveMetadata(self, sessionFolder):
+        """
+        """
+
+        sessionFolderPath = pl.Path(sessionFolder)
+        if sessionFolderPath.exists() == False:
+            sessionFolderPath.mkdir()
+
+        with open(sessionFolderPath.joinpath('binaryNoiseMetadata.pkl'), 'wb') as stream:
+            pickle.dump(self.metadata, stream)
+
+        return

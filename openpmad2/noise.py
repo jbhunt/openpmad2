@@ -907,12 +907,13 @@ class JitteredBinaryNoise2(bases.StimulusBase):
                             timestamp = self.display.flip()
 
                         #
-                        self.metadata['events'][iEvent] = 'field offset'
-                        iEvent += 1
-                        self.display.signalEvent(nSignalFramesForField, units='frames')
-                        for iFrame in range(int(np.ceil(self.display.fps * fieldCycle[1]))):
-                            self.display.drawBackground()
-                            self.display.flip()
+                        if fieldCycle[1] != 0:
+                            self.metadata['events'][iEvent] = 'field offset'
+                            iEvent += 1
+                            self.display.signalEvent(nSignalFramesForField, units='frames')
+                            for iFrame in range(int(np.ceil(self.display.fps * fieldCycle[1]))):
+                                self.display.drawBackground()
+                                self.display.flip()
 
                         #
                         self.metadata['blocks'][iTrial] = iBlock + 1

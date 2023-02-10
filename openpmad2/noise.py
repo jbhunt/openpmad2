@@ -925,6 +925,9 @@ class JitteredBinaryNoise2(bases.StimulusBase):
                     iBlock += 1
 
         #
+        self.display.idle(tIdle)
+
+        #
         mask = np.array([
             len(element.item()) > 0
                 for element in self.metadata['events']

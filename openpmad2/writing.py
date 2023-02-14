@@ -1,12 +1,17 @@
+import numpy as np
 import skvideo.io as io
 
 class SKVideoVideoWriterWrapper():
     """
     """
 
-    def __init__(self, display, filename, crf=17):
+    def __init__(self, display, filename=None, crf=17, vflip=False):
         """
         """
+
+        if filename is None:
+            self._writer = None
+            return
 
         idct = {
             '-r': f'{display.fps}',
@@ -20,6 +25,10 @@ class SKVideoVideoWriterWrapper():
             '-pix_fmt': f'yuv444p'
         }
 
+        #
+        if vflip:
+            odct['-vf'] = f'vflip'
+
         self._writer = io.FFmpegWriter(
             filename,
             inputdict=idct,
@@ -32,7 +41,8 @@ class SKVideoVideoWriterWrapper():
         """
         """
 
-        self._writer.writeFrame(array)
+        if self._writer is not None:
+            self._writer.writeFrame(array)
 
         return
 
@@ -40,6 +50,42 @@ class SKVideoVideoWriterWrapper():
         """
         """
 
-        self._writer.close()
+        if self._writer is not None:
+            self._writer.close()
+
+        return
+    
+class VideoBuffer():
+    """
+    TODO: Finish coding this
+    """
+
+    def __init__(self):
+        """
+        """
+
+        self._array = None
+        self._index = None
+
+        return
+    
+    def open(self, nFrames, shape):
+        """
+        """
+
+        self._array = np.full([nFrames, *shape], 0).astype(np.uint8)
+        self._index = 0
+
+        return
+    
+    def write(self):
+        """
+        """
+
+        return
+    
+    def close(self, filename):
+        """
+        """
 
         return

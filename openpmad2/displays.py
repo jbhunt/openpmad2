@@ -5,7 +5,7 @@ from psychopy.visual.windowwarp import Warper
 from psychopy.visual import GratingStim, ImageStim
 from . import warping
 from myphdlib.general.teensy import Microcontroller
-from openpmad2.writing import SKVideoVideoWriterWrapper
+from openpmad2.writing import VideoWriterSkvideo, VideoWriterOpenCV
 from openpmad2.helpers import generateMetadataFilename
 
 _lowStateTexture = np.full([16, 16], -1).astype(np.int8)
@@ -37,6 +37,9 @@ class WarpedWindow(Window):
         self._fps = fps
         self._ppd = self._width / self._azimuth
         self._textureShape = textureShape
+        self._mc = None
+        self._pulsing = False 
+        self._stream = None
 
         #
         super().__init__(
@@ -76,11 +79,6 @@ class WarpedWindow(Window):
         self._background.draw()
         self.flip()
 
-        #
-        self._mc = None
-        self._pulsing = False 
-        self._stream = None
-
         return
 
     def flip(self, drawSignalPatch=True, **kwargs):
@@ -111,39 +109,6 @@ class WarpedWindow(Window):
             self._stream.write(frame)
 
         return super().flip(**kwargs)
-    
-    def openVideoStream(
-        self,
-        tag,
-        sessionFolder,
-        vflip,
-        ):
-        """
-        """
-
-        if self._stream is not None:
-            raise Exception('Video stream already open')
-        
-        sessionFolderPath = pl.Path(sessionFolder)
-        filename = generateMetadataFilename(sessionFolderPath, tag, '.mp4')
-        self._stream = SKVideoVideoWriterWrapper(
-            self.display,
-            filename,
-            vflip
-        )
-
-        return
-    
-    def closeVideoStream(
-        self,
-        ):
-        """
-        """
-
-        if self._stream is not None:
-            self._stream.close()
-
-        return
 
     def idle(self, duration=1, units='seconds', returnFirstTimestamp=False):
         """
@@ -193,15 +158,6 @@ class WarpedWindow(Window):
 
         return
 
-    def emitSignal(self):
-        """
-        """
-
-        if self._mc is not None:
-            self._mc.signal()
-
-        return
-
     def clearStimuli(self):
         """
         """
@@ -219,12 +175,21 @@ class WarpedWindow(Window):
 
         return
 
+    def close(self):
+        """
+        """
+
+        super().close()
+        self.disconnectMicrocontroller()
+
+        return
+
     def getNumpyArray(self, buffer='back', thumbnailSize=None):
         """
         """
 
         shape = (thumbnailSize, thumbnailSize)
-        image = self.getMovieFrame(buffer=buffer).convert('L')
+        image = self.getMovieFrame(buffer=buffer)
         self.movieFrames = list()
         if thumbnailSize is not None:
             image.thumbnail(shape)
@@ -243,40 +208,67 @@ class WarpedWindow(Window):
 
         return
 
-    def close(self):
+    def contactMicrocontroller(self):
+        """
+        """
+
+        if self._mc is not None:
+            self._mc.signal()
+
+        return
+
+    def disconnectMicrocontroller(
+        self
+        ):
         """
         """
 
         if self._mc is not None:
             self._mc.release()
             self._mc = None
-        super().close()
 
         return
-    
-    def openVideoStream(self, filename):
-        """
-        """
 
-        if self._stream is None:
-            self._stream = SKVideoVideoWriterWrapper(self, filename)
-
-        return
-    
-    def writeFrameToStream(self, frame):
+    def openVideoStream(
+        self,
+        tag,
+        sessionFolder,
+        vflip=True,
+        crf=17
+        ):
         """
         """
 
         if self._stream is not None:
-            self._stream.write(frame)
+            raise Exception('Video stream already open')
+        
+        sessionFolderPath = pl.Path(sessionFolder)
+        filename = generateMetadataFilename(sessionFolderPath, tag, '.mp4')
+        shape = (
+            self.height,
+            self.width,
+        )
+        self._stream = VideoWriterSkvideo(
+            str(filename),
+            shape,
+            self.fps,
+            crf,
+            vflip
+        )
 
-    def closeVideoStream(self):
+        return
+    
+    def closeVideoStream(
+        self,
+        ):
         """
         """
 
         if self._stream is not None:
             self._stream.close()
-        self._stream = None
+            self._stream = None
+
+        return
 
     @property
     def width(self):

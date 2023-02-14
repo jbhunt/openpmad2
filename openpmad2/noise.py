@@ -954,8 +954,8 @@ class JitteredBinaryNoise2(bases.StimulusBase):
         correctVerticalReflection=True,
         nTrialsBetweenFlashes=5,
         flashCycle=(1, 1),
-        nSignalFramesForField=3,
-        nSignalFramesForFlash=6,
+        nSignalFramesForField=1,
+        nSignalFramesForFlash=3,
         ):
         """
         """

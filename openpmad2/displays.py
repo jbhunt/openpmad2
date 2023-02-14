@@ -1,10 +1,12 @@
-from cgitb import text
 import numpy as np
+import pathlib as pl
 from psychopy.visual import Window
 from psychopy.visual.windowwarp import Warper
 from psychopy.visual import GratingStim, ImageStim
 from . import warping
 from myphdlib.general.teensy import Microcontroller
+from openpmad2.writing import SKVideoVideoWriterWrapper
+from openpmad2.helpers import generateMetadataFilename
 
 _lowStateTexture = np.full([16, 16], -1).astype(np.int8)
 _highStateTexture = np.full([16, 16], 1).astype(np.int8)
@@ -33,10 +35,6 @@ class WarpedWindow(Window):
         self._width, self._height = size
         self._azimuth, self._elevation = fov
         self._fps = fps
-        # self._ppd = np.mean([
-        #    self.width / self.azimuth,
-        #     self.height / self.elevation
-        # ])
         self._ppd = self._width / self._azimuth
         self._textureShape = textureShape
 
@@ -81,6 +79,7 @@ class WarpedWindow(Window):
         #
         self._mc = None
         self._pulsing = False 
+        self._stream = None
 
         return
 
@@ -90,17 +89,61 @@ class WarpedWindow(Window):
 
         # Draw the signal patch
         if self._countdown is not None:
+
+            # Decrement the signal countdown
             if self._countdown != 0:
                 self._countdown -= 1
+
+            # Set the signal patch to the low state
             else:
                 if self._state != False:
                     self._patch.tex = _lowStateTexture
                     self._state = False
                     self._countdown = None
+
+        # Draw the signal patch
         if drawSignalPatch:
             self._patch.draw()
 
+        # Write the current frame
+        if self._stream is not None:
+            frame = self.getNumpyArray()
+            self._stream.write(frame)
+
         return super().flip(**kwargs)
+    
+    def openVideoStream(
+        self,
+        tag,
+        sessionFolder,
+        vflip,
+        ):
+        """
+        """
+
+        if self._stream is not None:
+            raise Exception('Video stream already open')
+        
+        sessionFolderPath = pl.Path(sessionFolder)
+        filename = generateMetadataFilename(sessionFolderPath, tag, '.mp4')
+        self._stream = SKVideoVideoWriterWrapper(
+            self.display,
+            filename,
+            vflip
+        )
+
+        return
+    
+    def closeVideoStream(
+        self,
+        ):
+        """
+        """
+
+        if self._stream is not None:
+            self._stream.close()
+
+        return
 
     def idle(self, duration=1, units='seconds', returnFirstTimestamp=False):
         """
@@ -176,11 +219,18 @@ class WarpedWindow(Window):
 
         return
 
-    def getCurrentFrameAsArray(self, buffer='back'):
+    def getNumpyArray(self, buffer='back', thumbnailSize=None):
         """
         """
 
-        return np.array(self.getMovieFrame(buffer=buffer).convert('L'))
+        shape = (thumbnailSize, thumbnailSize)
+        image = self.getMovieFrame(buffer=buffer).convert('L')
+        self.movieFrames = list()
+        if thumbnailSize is not None:
+            image.thumbnail(shape)
+        array = np.array(image)
+
+        return array
 
     def connectMicrocontroller(
         self,
@@ -203,6 +253,30 @@ class WarpedWindow(Window):
         super().close()
 
         return
+    
+    def openVideoStream(self, filename):
+        """
+        """
+
+        if self._stream is None:
+            self._stream = SKVideoVideoWriterWrapper(self, filename)
+
+        return
+    
+    def writeFrameToStream(self, frame):
+        """
+        """
+
+        if self._stream is not None:
+            self._stream.write(frame)
+
+    def closeVideoStream(self):
+        """
+        """
+
+        if self._stream is not None:
+            self._stream.close()
+        self._stream = None
 
     @property
     def width(self):

@@ -1,11 +1,12 @@
+import cv2 as cv
 import numpy as np
 import skvideo.io as io
 
-class SKVideoVideoWriterWrapper():
+class VideoWriterOpenCV():
     """
     """
 
-    def __init__(self, display, filename=None, crf=17, vflip=False):
+    def __init__(self, filename=None, shape=(720, 1280), fps=60, vflip=False):
         """
         """
 
@@ -13,12 +14,61 @@ class SKVideoVideoWriterWrapper():
             self._writer = None
             return
 
+        height, width = shape
+        codec = cv.VideoWriter_fourcc(*'mp4v')
+        self._writer = cv.VideoWriter(
+            filename,
+            codec,
+            fps,
+            (width, height),
+            False
+        )
+        self._vflip = vflip
+
+        return
+
+    def write(self, frame):
+        """
+        """
+
+        stack = np.dstack([frame, frame, frame])
+
+        if self._vflip:
+            stack = cv.flip(stack, 0)
+
+        if self._writer is not None:
+            self._writer.write(stack)
+
+        return
+
+    def close(self):
+        """
+        """
+
+        if self._writer is not None:
+            self._writer.release()
+
+        return
+
+class VideoWriterSkvideo():
+    """
+    """
+
+    def __init__(self, filename=None, shape=(720, 1280), fps=60, crf=17, vflip=False):
+        """
+        """
+
+        if filename is None:
+            self._writer = None
+            return
+
+        height, width = shape
         idct = {
-            '-r': f'{display.fps}',
-            '-s': f'{display.width}x{display.height}'
+            '-r': f'{fps}',
+            '-s': f'{width}x{height}'
         }
         odct = {
-            '-r'      : f'{display.fps}',
+            '-r'      : f'{fps}',
             '-c:v'    : f'libx264',
             '-crf'    : f'{crf}',
             '-preset' : f'ultrafast',
@@ -32,7 +82,7 @@ class SKVideoVideoWriterWrapper():
         self._writer = io.FFmpegWriter(
             filename,
             inputdict=idct,
-            outputdict=odct
+            outputdict=odct,
         )
 
         return
@@ -52,40 +102,5 @@ class SKVideoVideoWriterWrapper():
 
         if self._writer is not None:
             self._writer.close()
-
-        return
-    
-class VideoBuffer():
-    """
-    TODO: Finish coding this
-    """
-
-    def __init__(self):
-        """
-        """
-
-        self._array = None
-        self._index = None
-
-        return
-    
-    def open(self, nFrames, shape):
-        """
-        """
-
-        self._array = np.full([nFrames, *shape], 0).astype(np.uint8)
-        self._index = 0
-
-        return
-    
-    def write(self):
-        """
-        """
-
-        return
-    
-    def close(self, filename):
-        """
-        """
 
         return

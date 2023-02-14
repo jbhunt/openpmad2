@@ -1,7 +1,8 @@
 import numpy as np
+import pathlib as pl
 from scipy.ndimage import gaussian_filter as gfilt
 
-def make_alpha_mask(shape=(720, 1280), margin=30, sigma=10, low=-1, high=1):
+def makeAlphaMask(shape=(720, 1280), margin=30, sigma=10, low=-1, high=1):
     """
     """
 
@@ -32,3 +33,12 @@ def cycleSignalPatch(display, cycle=(1, 1), nCycles=1):
             display.flip()
 
     return
+
+def generateMetadataFilename(parent, tag, extension='.pkl'):
+    """
+    """
+
+    existing = list(parent.glob(f'{tag}*'))
+    n = len(existing) + 1
+    filename = parent.joinpath(f'{tag}{n}{extension}')
+    return filename

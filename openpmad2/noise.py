@@ -9,6 +9,7 @@ import numpy as np
 import pathlib as pl
 from PIL import Image
 from openpmad2.constants import numpyRandomSeed
+from openpmad2.helpers import generateMetadataFilename
 
 #
 np.random.seed(numpyRandomSeed)
@@ -838,7 +839,7 @@ class JitteredBinaryNoise2(bases.StimulusBase):
         nTrialsBetweenFlashes,
         flashCycle,
         nSignalFramesForField,
-        nSignalFramesForFlash
+        nSignalFramesForFlash,
         ):
         """
         """
@@ -925,7 +926,9 @@ class JitteredBinaryNoise2(bases.StimulusBase):
                     iBlock += 1
 
         #
-        self.display.idle(tIdle)
+        for iFrame in range(int(np.ceil(self.display.fps * tIdle))):
+            self.display.drawBackground()
+            self.display.flip()
 
         #
         mask = np.array([
@@ -998,7 +1001,7 @@ class JitteredBinaryNoise2(bases.StimulusBase):
             nTrialsBetweenFlashes,
             flashCycle,
             nSignalFramesForField,
-            nSignalFramesForFlash
+            nSignalFramesForFlash,
         )
 
         #
@@ -1009,16 +1012,23 @@ class JitteredBinaryNoise2(bases.StimulusBase):
         self.metadata['length'] = length
 
         return
-    
+        
     def saveMetadata(self, sessionFolder):
         """
         """
 
+        #
         sessionFolderPath = pl.Path(sessionFolder)
         if sessionFolderPath.exists() == False:
             sessionFolderPath.mkdir()
 
-        with open(sessionFolderPath.joinpath('binaryNoiseMetadata.pkl'), 'wb') as stream:
+        # Save the metadata dict
+        filename = generateMetadataFilename(
+            sessionFolderPath,
+            'binaryNoiseMetadata',
+            '.pkl'
+        )
+        with open(filename, 'wb') as stream:
             pickle.dump(self.metadata, stream)
 
         return

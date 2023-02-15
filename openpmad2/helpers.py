@@ -42,3 +42,22 @@ def generateMetadataFilename(parent, tag, extension='.pkl'):
     n = len(existing) + 1
     filename = parent.joinpath(f'{tag}{n}{extension}')
     return filename
+
+def estimateFrameCount(t, fps=60, roundingMethod='nearest'):
+    """
+    Convert time (in seconds) to frames
+    """
+
+    if roundingMethod == 'nearest':
+        nFrames = int(round(fps * t))
+    elif roundingMethod == 'ceiling':
+        nFrames = int(np.ceil(fps * t))
+    elif roundingMethod == 'floor':
+        nFrames = int(np.floor(fps * t))
+    else:
+        raise Exception(f'Rounding method must be one of "nearest", "ceiling", or "floor"')
+
+    if nFrames == 0:
+        raise Exception(f'Estimated frame count is 0')
+
+    return nFrames

@@ -286,13 +286,13 @@ class DriftingGratingWithFictiveSaccades():
             recordTimestamp = False
             for iFrame, (phase, signal, contrast) in enumerate(zip(*fictiveSaccadeSequence[key].values())):
 
-                #
-                gabor.phase += (phase * motion)
+                # TODO: Figure out why the phase needs to be multiplied by -1???
+                gabor.phase += (phase * motion * -1)
                 gabor.contrast = contrast
 
                 #
                 if signal:
-                    self.display.signalEvent(1, units='frames')
+                    self.display.signalEvent(2, units='frames')
                     if iFrame == 0:
                         event = 'saccade onset'
                     else:

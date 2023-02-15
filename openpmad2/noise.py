@@ -792,48 +792,83 @@ class JitteredBinaryNoise2(bases.StimulusBase):
 
     def _generateMetadata(
         self,
-        nImagesPerBlock,
-        nBlocksPerCondition,
+        nUniqueImages,
         nBlockRepeats,
         includeJitteredBlocks,
         pSubregionHigh,
         nSubregions,
+        randomizeImagesWithinBlocks
         ):
         """
         """
 
         #
         nConditions = 2 if includeJitteredBlocks else 1
-        nUniqueImages = nConditions * nBlocksPerCondition * nBlockRepeats * nImagesPerBlock
+        nTrials = nConditions * nBlockRepeats * nUniqueImages
 
         #
         self.metadata = {
-            'blocks': np.full([nUniqueImages, 1], np.nan),
+            'blocks': np.full([nTrials, 1], np.nan),
             'events': np.full([10000000, 1], '').astype(object),
-            'values': np.full([nUniqueImages, nSubregions, 1], np.nan),
-            'jittered' : np.full([nUniqueImages, 1], False)
+            'values': np.full([nTrials, nSubregions, 1], np.nan),
+            'jittered' : np.full([nTrials, 1], False),
+            'barcodes': np.full([nTrials, 1], '').astype(object)
         }
 
         #
-        for iTrial in range(nUniqueImages):
+        images = {}
+        for iField in range(nUniqueImages):
+
+            # Create a unique field
             values = np.random.choice(
                 np.array([1, -1]),
                 p=np.array([pSubregionHigh, 1 - pSubregionHigh]),
                 size=nSubregions
             ).reshape(-1, 1)
-            self.metadata['values'][iTrial] = values
+
+            # Assign it a barcode
+            barcode = '{0:032b}'.format(iField)
+            images[barcode] = values
+
+        #
+        iTrial = 0
+        iBlock = 0
+        for iCondition in range(nConditions):
+
+            #
+            if iCondition:
+                jittered = True
+            else:
+                jittered = False
+
+            #
+            for iRepeat in range(nBlockRepeats):
+
+                #
+                barcodes = np.array(list(images.keys()))
+                if randomizeImagesWithinBlocks:
+                    index = np.random.choice(np.arange(barcodes.size), replace=False, size=barcodes.size)
+                    barcodes[:] = barcodes[index]
+
+                #
+                for barcode in barcodes:
+                    values = images[barcode]
+                    self.metadata['blocks'][iTrial] = iBlock + 1
+                    self.metadata['values'][iTrial] = values
+                    self.metadata['jittered'][iTrial] = jittered
+                    self.metadata['barcodes'][iTrial] = barcode
+                    iTrial += 1
+
+                #
+                iBlock += 1
+
 
         return
-    
+
     def _runMainLoop(
         self,
         field,
         fieldCycle,
-        nImagesPerBlock,
-        nBlocksPerCondition,
-        nBlockRepeats,
-        includeJitteredBlocks,
-        nSubregions,
         offsetInPixels,
         tIdle,
         nTrialsBetweenFlashes,
@@ -843,12 +878,6 @@ class JitteredBinaryNoise2(bases.StimulusBase):
         ):
         """
         """
-
-        #
-        if includeJitteredBlocks:
-            conditions = ('original', 'jittered')
-        else:
-            conditions = ('original')
 
         #
         gridNodes = field.fieldPos
@@ -863,67 +892,59 @@ class JitteredBinaryNoise2(bases.StimulusBase):
         #
         iTrial = 0
         iEvent = 0
-        iBlock = 0
-        for condition in conditions:
-            for iBlock_ in range(nBlocksPerCondition):
-                for iRepeat in range(nBlockRepeats):
-                    for iField in range(nImagesPerBlock):
 
-                        # Present the full-field flash
-                        if iTrial % nTrialsBetweenFlashes == 0:
+        #
+        iterable = zip(
+            self.metadata['values'],
+            self.metadata['jittered']
+        )
+        for colors, jittered in iterable:
 
-                            #
-                            self.metadata['events'][iEvent] = 'flash onset'
-                            iEvent += 1
-                            self.display.signalEvent(nSignalFramesForFlash, units='frames')
-                            self.display.setBackgroundColor(1)
-                            for iFrame in range(int(np.ceil(self.display.fps * flashCycle[0]))):
-                                self.display.drawBackground()
-                                self.display.flip()
+            # Present the full-field flash
+            if iTrial % nTrialsBetweenFlashes == 0:
 
-                            #
-                            self.metadata['events'][iEvent] = 'flash offset'
-                            iEvent += 1
-                            self.display.setBackgroundColor(-1)
-                            self.display.signalEvent(nSignalFramesForFlash, units='frames')
-                            for iFrame in range(int(np.ceil(self.display.fps * flashCycle[1]))):
-                                self.display.drawBackground()
-                                self.display.flip()
+                #
+                self.metadata['events'][iEvent] = 'flash onset'
+                iEvent += 1
+                self.display.signalEvent(nSignalFramesForFlash, units='frames')
+                self.display.setBackgroundColor(1)
+                for iFrame in range(int(np.ceil(self.display.fps * flashCycle[0]))):
+                    self.display.drawBackground()
+                    self.display.flip()
 
-                        #
-                        values = self.metadata['values'][iTrial].reshape(nSubregions, 1)
-                        field.colors = values
-                        if condition == 'jittered':
-                            field.fieldPos = gridNodes + offsetInPixels
-                            self.metadata['jittered'][iTrial] = True
-                        else:
-                            self.metadata['jittered'][iTrial] = False
+                #
+                self.metadata['events'][iEvent] = 'flash offset'
+                iEvent += 1
+                self.display.setBackgroundColor(-1)
+                self.display.signalEvent(nSignalFramesForFlash, units='frames')
+                for iFrame in range(int(np.ceil(self.display.fps * flashCycle[1]))):
+                    self.display.drawBackground()
+                    self.display.flip()
 
-                        #
-                        self.metadata['events'][iEvent] = 'field onset'
-                        iEvent += 1
-                        self.display.signalEvent(nSignalFramesForField, units='frames')
-                        for iFrame in range(int(np.ceil(self.display.fps * fieldCycle[0]))):
-                            field.draw()
-                            timestamp = self.display.flip()
+            #
+            field.colors = colors
+            if jittered:
+                field.fieldPos = gridNodes + offsetInPixels
 
-                        #
-                        if fieldCycle[1] != 0:
-                            self.metadata['events'][iEvent] = 'field offset'
-                            iEvent += 1
-                            self.display.signalEvent(nSignalFramesForField, units='frames')
-                            for iFrame in range(int(np.ceil(self.display.fps * fieldCycle[1]))):
-                                self.display.drawBackground()
-                                self.display.flip()
+            #
+            self.metadata['events'][iEvent] = 'field onset'
+            iEvent += 1
+            self.display.signalEvent(nSignalFramesForField, units='frames')
+            for iFrame in range(int(np.ceil(self.display.fps * fieldCycle[0]))):
+                field.draw()
+                timestamp = self.display.flip()
 
-                        #
-                        self.metadata['blocks'][iTrial] = iBlock + 1
+            #
+            if fieldCycle[1] != 0:
+                self.metadata['events'][iEvent] = 'field offset'
+                iEvent += 1
+                self.display.signalEvent(nSignalFramesForField, units='frames')
+                for iFrame in range(int(np.ceil(self.display.fps * fieldCycle[1]))):
+                    self.display.drawBackground()
+                    self.display.flip()
 
-                        #
-                        iTrial += 1
-
-                    #
-                    iBlock += 1
+            #
+            iTrial += 1
 
         #
         for iFrame in range(int(np.ceil(self.display.fps * tIdle))):
@@ -938,24 +959,23 @@ class JitteredBinaryNoise2(bases.StimulusBase):
         self.metadata['events'] = self.metadata['events'][mask, :]
 
         return
-    
 
     def present(
         self,
         length=10,
         fieldCycle=(0.5, 0.5),
         nBlockRepeats=1,
-        nImagesPerBlock=10,
-        nBlocksPerCondition=1,
+        nUniqueImages=10,
         includeJitteredBlocks=True,
         jitterDirection=(1, 1),
         pSubregionHigh=0.2,
         tIdle=3,
         correctVerticalReflection=True,
         nTrialsBetweenFlashes=5,
-        flashCycle=(1, 1),
-        nSignalFramesForField=1,
-        nSignalFramesForFlash=3,
+        flashCycle=(0.5, 0.5),
+        nSignalFramesForField=3,
+        nSignalFramesForFlash=6,
+        randomizeImagesWithinBlocks=False,
         ):
         """
         """
@@ -978,12 +998,12 @@ class JitteredBinaryNoise2(bases.StimulusBase):
 
         #
         self._generateMetadata(
-            nImagesPerBlock,
-            nBlocksPerCondition,
+            nUniqueImages,
             nBlockRepeats,
             includeJitteredBlocks,
             pSubregionHigh,
             nSubregions,
+            randomizeImagesWithinBlocks
         )
 
         #
@@ -991,11 +1011,6 @@ class JitteredBinaryNoise2(bases.StimulusBase):
         self._runMainLoop(
             field,
             fieldCycle,
-            nImagesPerBlock,
-            nBlocksPerCondition,
-            nBlockRepeats,
-            includeJitteredBlocks,
-            nSubregions,
             offsetInPixels,
             tIdle,
             nTrialsBetweenFlashes,

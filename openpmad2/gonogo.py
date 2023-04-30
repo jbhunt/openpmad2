@@ -2,6 +2,7 @@ import numpy as np
 import pathlib as pl
 from psychopy import visual
 from psychopy import core
+import serial
 
 class StaticGratingWithProbe():
     """
@@ -328,3 +329,131 @@ class DriftingGratingWithVariableProbe():
                 stream.write(f'{trialNumber:.0f}, {probeContrast:.3f}, {motion:.0f}, {timestamp:.3f}\n')
 
         return
+    
+class StaticGratingWithRealtimeProbe():
+    """
+    """
+
+    def __init__(self):
+        """
+        """
+
+        self._connection = None
+
+        return
+    
+    def _connectWithMicrocontroller(
+        self,
+        baudrate=9600,
+        timeout=1,
+        ):
+        """
+        """
+
+        #
+        if self._connection is not None:
+            self._connection.close()
+            self._connection = None
+
+        outgoing = bytes('a', 'utf-8')
+        connected = False
+        devices = pl.Path('/dev/').glob('*ttyACM*')
+        for device in devices:
+            try:
+                connection = serial.Serial(
+                    str(device),
+                    baudrate,
+                    timeout=timeout
+                )
+            except Exception as error:
+                continue
+            connection.write(outgoing)
+            incoming = connection.read(1)
+            if len(incoming) > 0 and incoming == outgoing:
+                connected = True
+                self._connection = connection
+                break
+
+        #
+        if connected == False:
+            raise Exception('Failed to connect with microcontroller')
+
+        return
+    
+    def present(
+        self,
+        spatialFrequency=0.08,
+        baselineContrastLevel=0.5,
+        probeContrastLevels=(1,),
+        probeContrastProbabilities=(1.0,),
+        probeDuration=0.05,
+        sessionLength=5,
+        ):
+        """
+        """
+
+        self._connectWithMicrocontroller()
+
+        #
+        cpp = spatialFrequency / self.display.ppd # cycles per pixel
+        gabor = visual.GratingStim(
+            self.display,
+            size=self.display.size,
+            units='pix',
+            sf=cpp,
+            contrast=baselineContrastLevel,
+        )
+
+        #
+        nTrials = round(sessionLength * self.display.fps / 2, 0)
+        self.metadata = np.full([nTrials, 2], np.nan)
+
+        #
+        iTrial = 0
+        nFrames = round(self.display.fps * sessionLength, 0)
+        countdown = 0
+        recordTimestamp = False
+        for iFrame in range(nFrames):
+
+            #
+            if countdown == 0 and gabor.contrast != baselineContrastLevel:
+                gabor.contrast = baselineContrastLevel
+
+            #
+            if self._connection.inWaiting > 0:
+                message = self._connection.read()
+                gabor.contrast = np.random.choice(probeContrastLevels, p=probeContrastProbabilities, size=1).item()
+                countdown = round(self.display.fps * probeDuration)
+                self.metadata[iTrial, 0] = gabor.contrast
+                recordTimestamp = True
+
+            #
+            gabor.draw()
+            timestamp = self.display.flip()
+            if recordTimestamp: 
+                self.metadata[iTrial, 1] = timestamp
+                iTrial += 1
+            
+            #
+            if countdown != 0:
+                countdown -= 1
+
+        return
+    
+    def saveMetadata(self, sessionFolder):
+        """
+        """
+
+        sessionFolderPath = pl.Path(sessionFolder)
+
+        if self.metadata is None:
+            return
+
+        if sessionFolderPath.exists() == False:
+            sessionFolderPath.mkdir()
+
+        filename = str(sessionFolderPath.joinpath('staticGratingWithRealtimeProbeMetadata.txt'))
+        with open(filename, 'w') as stream:
+            stream.write(f'Probe contrast, Timestamp\n')
+            for probeContrast, timestamp in self.metadata:
+                stream.write(f'{probeContrast:.3f}, {timestamp:.3f}\n')

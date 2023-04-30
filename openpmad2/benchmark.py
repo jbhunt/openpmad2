@@ -1,82 +1,100 @@
 from . import bases
-from . import writing
+from openpmad2.helpers import estimateFrameCount, generateMetadataFilename
+import time
+import pickle
 import numpy as np
-from psychopy.visual.movie3 import MovieStim3
+import pathlib as pl
 
-class RefreshRateBenchmark(bases.Stimulus):
+class PerformanceBenchmarkingStimulus(bases.StimulusBase):
     """
     """
 
-    def __init__(
+    def _generateMetadata(
         self,
-        display,
-        ncalls=2,
-        duration=3,
+        nFramesLow,
+        nFramesHigh,
+        nFramesIdle,
+        nCycles,
         ):
         """
         """
 
-        super().__init__(display)
-
-        self._ncalls = ncalls
-        self._duration = duration
+        nFramesTotal = (2 * nFramesIdle) + (nCycles * (nFramesLow + nFramesHigh))
+        self.metadata = {
+            'timestamps': np.full([nFramesTotal, 1], np.nan)
+        }
 
         return
 
-    def construct(self, filename=None, metadata=None, prestimulus=1):
+    def present(
+        self,
+        tLow=1/60,
+        tHigh=1/60,
+        nCycles=20,
+        tIdle=1,
+        backgroundColor=0
+        ):
         """
         """
 
         #
-        if filename is not None:
-            writer = writing.SKVideoVideoWriterWrapper(self.display, filename)
-            self._movie = filename
-
-        # Short pre-stimulus epoch
-        self.display.background.state = False
-        self.display.background.draw()
-        warped = self.display.getMovieFrame()
-        for iframe in range(int(np.ceil(prestimulus * self.display.fps))):
-            if online:
-                self.display.flip()
-            if filename is not None:
-                writer.write(warped)
-
-        for iframe in range(int(np.ceil(self.display.fps * duration))):
-            self.display.background.state = not self.display.background.state
-            self.display.background.draw()
-            warped = self.display.getMovieFrame()
-            if online:
-                self.display.flip()
-            if filename is not None:
-                writer.write(warped)
-
-        # Short post-stimulus epoch
-        self.display.background.state = False
-        self.display.background.draw()
-        warped = self.display.getMovieFrame()
-        for iframe in range(int(np.ceil(prestimulus * self.display.fps))):
-            if online:
-                self.display.flip()
-            if filename is not None:
-                writer.write(warped)
+        self.display.setBackgroundColor(backgroundColor)
 
         #
-        if filename is not None:
-            writer.close()
+        nFramesLow = estimateFrameCount(tLow, self.display.fps)
+        nFramesHigh = estimateFrameCount(tHigh, self.display.fps)
+        nFramesIdle = estimateFrameCount(tIdle, self.display.fps)
+        self._generateMetadata(
+            nFramesLow,
+            nFramesHigh,
+            nFramesIdle,
+            nCycles,
+        )
+
+        #
+        iFrame = 0
+        for iFrame_ in range(nFramesIdle):
+            self.display.drawBackground()
+            self.metadata['timestamps'][iFrame] = self.display.flip()
+            iFrame += 1
+
+        #
+        for iCycle in range(nCycles):
+            self.display.state = True
+            for iFrame_ in range(nFramesHigh):
+                self.display.drawBackground()
+                self.metadata['timestamps'][iFrame] = self.display.flip()
+                iFrame += 1
+            self.display.state = False
+            for iFrame_ in range(nFramesLow):
+                self.display.drawBackground()
+                self.metadata['timestamps'][iFrame] = self.display.flip()
+                iFrame += 1
+        
+        #
+        for iFrame_ in range(nFramesIdle):
+            self.display.drawBackground()
+            self.metadata['timestamps'][iFrame] = self.display.flip()
+            iFrame += 1
 
         return
 
-    def present(self, filename):
+    def saveMetadata(self, sessionFolder):
         """
         """
 
-        stim = MovieStim3(self.display, filename, units=self.display.units, size=self.display.size)
-        stim.play()
-        nframes = int(np.ceil(stim.duration / stim._frameInterval))
-        for iframe in range(nframes):
-            for icall in range(self._ncalls):
-                stim.draw()
-            self.window.flip()
+        #
+        sessionFolderPath = pl.Path(sessionFolder)
+        if sessionFolderPath.exists() == False:
+            sessionFolderPath.mkdir()
+
+        # Save the metadata dict
+        filename = generateMetadataFilename(
+            sessionFolderPath,
+            'bencharkingStimulusMetadata',
+            '.pkl'
+        )
+        with open(filename, 'wb') as stream:
+            pickle.dump(self.metadata, stream)
 
         return

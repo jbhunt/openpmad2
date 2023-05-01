@@ -375,10 +375,7 @@ class StaticGratingWithRealtimeProbe():
                 break
 
         #
-        if connected == False:
-            raise Exception('Failed to connect with microcontroller')
-
-        return
+        return connected
     
     def present(
         self,
@@ -388,11 +385,14 @@ class StaticGratingWithRealtimeProbe():
         probeContrastProbabilities=(1.0,),
         probeDuration=0.05,
         sessionLength=5,
+        enforceSerialConnection=False,
         ):
         """
         """
 
-        self._connectWithMicrocontroller()
+        connected = self._connectWithMicrocontroller()
+        if enforceSerialConnection and connected == False:
+            raise Exception('Failed to establish serial connection')
 
         #
         cpp = spatialFrequency / self.display.ppd # cycles per pixel

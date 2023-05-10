@@ -661,8 +661,19 @@ class DriftingGratingWithFictiveSaccades2():
 
         return
 
-    def saveMetadata(self):
+    def saveMetadata(self, sessionFolder):
         """
         """
+
+        sessionFolderPath = pl.Path(sessionFolder)
+        if sessionFolderPath.exists() == False:
+            sessionFolderPath.mkdir()
+
+        #
+        index = np.array([len(element.item()) > 0 for element in self.metadata['events']])
+        self.metadata['events'] = self.metadata['events'][index, :]
+
+        with open(sessionFolderPath.joinpath('fictiveSaccadeMetadata.pkl'), 'wb') as stream:
+            pickle.dump(self.metadata, stream)
 
         return

@@ -403,3 +403,266 @@ class DriftingGratingWithFictiveSaccades():
             pickle.dump(self.metadata, stream)
 
         return
+
+class DriftingGratingWithFictiveSaccades2():
+    """
+    """
+
+    def __init__(self, display):
+        """
+        """
+
+        self._eventIndex = 0
+        self.metadata = None
+        self.display = display
+
+        return
+
+    def _computeGratingPhaseAcrossSaccade(
+        self,
+        saccadeVelocityParams,
+        saccadeDurationInFrames,
+        gratingVelocity,
+        spatialFrequency,
+        ):
+        """
+        """
+
+        peak, width, constant = saccadeVelocityParams
+        if constant:
+            pass
+
+        #
+        if constant:
+            sequence = np.full(saccadeDurationInFrames + 2, peak)
+
+        #
+        else:
+            x0 = (saccadeDurationInFrames + 2) // 2
+            x = np.arange(saccadeDurationInFrames + 2)
+            v = (np.exp(-np.power(x - x0, 2.) / (2 * np.power(width, 2.))))
+            sequence = np.interp(v, (v.min(), v.max()), (gratingVelocity, peak))
+        
+        #
+        cpf = spatialFrequency * sequence / self.display.fps
+
+        return cpf[1:-1]
+
+    def _generateMetadata(
+        self,
+        nTrialsPerCondition,
+        gratingMotion,
+        randomizeTrialOrder
+        ):
+        """
+        """
+
+        self.metadata = {
+            'trials': list(),
+        }
+
+        #
+        for motion, block in zip(gratingMotion, range(len(gratingMotion))):
+            trials = list()
+            for trialType in ('saccade', 'probe', 'combined'):
+                for iTrial in range(nTrialsPerCondition):
+                    trial = (block, motion, trialType)
+                    trials.append(trial)
+            index = np.arange(len(trials))
+            if randomizeTrialOrder:
+                index = np.random.choice(index, size=index.size, replace=False)
+            for iTrial in index:
+                self.metadata['trials'].append(trials[iTrial])
+
+        #
+        nTrials = len(self.metadata['trials'])
+        nEvents = int(nTrials * 2)
+        self.metadata['events'] = np.full([nEvents, 1], '').astype(object)
+
+        return
+
+    def _runMainLoop(
+        self,
+        spatialFrequency,
+        gratingVelocity,
+        saccadeDurationInFrames,
+        saccadeVelocityParams,
+        baselineContrast,
+        probeDurationInFrames,
+        probeLatencyInFrames,
+        probeContrast,
+        itiRange,
+        tStatic,
+        tWarmup,
+        ibi
+        ):
+        """
+        """
+
+        #
+        cpp = spatialFrequency / self.display.ppd # cycles per pixel
+        gabor = visual.GratingStim(
+            self.display,
+            size=self.display.size,
+            units='pix',
+            sf=cpp,
+        )
+        gabor.contrast = baselineContrast
+
+        #
+        cpf = spatialFrequency * gratingVelocity / self.display.fps
+        phases = self._computeGratingPhaseAcrossSaccade(
+            saccadeVelocityParams,
+            saccadeDurationInFrames,
+            gratingVelocity,
+            spatialFrequency
+        )
+
+        # Warm-up
+        motion = self.metadata['trials'][0][1]
+        for iFrame in range(int(round(ibi * self.display.fps))):
+            self.display.drawBackground()
+            self.display.flip()
+        for iFrame in range(int(round(tStatic * self.display.fps))):
+            gabor.draw()
+            self.display.flip()
+        for iFrame in range(int(round(tWarmup * self.display.fps))):
+            gabor.phase += cpf * motion
+            gabor.draw()
+            self.display.flip()
+
+        #
+        iEvent = 0
+        for block, motion_, tt in self.metadata['trials']:
+
+            # Block transition
+            if motion_ != motion:
+                motion = motion_
+                for iFrame in range(int(round(ibi * self.display.fps))):
+                    self.display.drawBackground()
+                    self.display.flip()
+                for iFrame in range(int(round(tStatic * self.display.fps))):
+                    gabor.draw()
+                    self.display.flip()
+                for iFrame in range(int(round(tWarmup * self.display.fps))):
+                    gabor.phase += cpf * motion
+                    gabor.draw()
+                    self.display.flip()
+
+            # Saccade-only trials
+            if tt == 'saccade':
+                for iFrame, phase in enumerate(phases):
+                    if iFrame == 0:
+                        self.display.signalEvent(2, units='frames')
+                        self.metadata['events'][iEvent] = 'saccade onset'
+                        iEvent += 1
+                    gabor.phase += phase * motion
+                    gabor.draw()
+                    self.display.flip()
+
+            # Probe-only trials
+            elif tt == 'probe':
+                gabor.contrast = probeContrast
+                for iFrame in range(probeDurationInFrames):
+                    if iFrame == 0:
+                        self.display.signalEvent(2, units='frames')
+                        self.metadata['events'][iEvent] = 'probe onset'
+                        iEvent += 1
+                    gabor.phase += cpf * motion
+                    gabor.draw()
+                    self.display.flip()
+                gabor.contrast = baselineContrast
+
+            # Saccade and probe trials
+            elif tt == 'combined':
+                probeOffsetCountdown = 0
+                for iFrame, phase in enumerate(phases):
+                    if iFrame == 0:
+                        self.display.signalEvent(1, units='frames')
+                        self.metadata['events'][iEvent] = 'saccade onset'
+                        iEvent += 1
+                    if probeOffsetCountdown == 0 and gabor.contrast != baselineContrast:
+                        gabor.contrast = baselineContrast
+                    gabor.phase += phase * motion
+                    if iFrame == probeLatencyInFrames:
+                        self.display.signalEvent(1, units='frames')
+                        self.metadata['events'][iEvent] = 'probe onset'
+                        iEvent += 1
+                        probeOffsetCountdown = probeDurationInFrames
+                        gabor.contrast = probeContrast
+                    gabor.draw()
+                    self.display.flip()
+                    # print(iFrame, gabor.contrast, self.display.state)
+                    if probeOffsetCountdown != 0:   
+                        probeOffsetCountdown -= 1
+                if gabor.contrast != baselineContrast:
+                    while probeOffsetCountdown != 0:
+                        gabor.phase += cpf * motion
+                        gabor.draw()
+                        self.display.flip()
+                    gabor.contrast = baselineContrast
+
+            # ITI
+            itiInSeconds = np.random.uniform(low=itiRange[0], high=itiRange[1], size=1).item()
+            itiInFrames = int(round(self.display.fps * itiInSeconds))
+            for iFrame in range(itiInFrames):
+                gabor.phase += cpf * motion
+                gabor.draw()
+                self.display.flip()
+
+        #
+        for iFrame in range(int(round(ibi * self.display.fps))):
+            self.display.drawBackground()
+            self.display.flip()
+
+        return
+
+    def present(
+        self,
+        nTrialsPerCondition=1,
+        spatialFrequency=0.15,
+        gratingVelocity=12,
+        saccadeDurationInFrames=7,
+        probeContrast=1,
+        baselineContrast=0.5,
+        probeLatencyInFrames=2,
+        probeDurationInFrames=3,
+        saccadeVelocityParams=(300, 1, 0), # Peak, width (SD), and flag for constant velocity
+        gratingMotion=(-1, 1),
+        randomizeTrialOrder=True,
+        itiRange=(1, 2),
+        tStatic=3,
+        tWarmup=3,
+        ibi=3,
+        ):
+        """
+        """
+
+        self._generateMetadata(
+            nTrialsPerCondition,
+            gratingMotion,
+            randomizeTrialOrder
+        )
+
+        self._runMainLoop(
+            spatialFrequency,
+            gratingVelocity,
+            saccadeDurationInFrames,
+            saccadeVelocityParams,
+            baselineContrast,
+            probeDurationInFrames,
+            probeLatencyInFrames,
+            probeContrast,
+            itiRange,
+            tStatic,
+            tWarmup,
+            ibi
+        )
+
+        return
+
+    def saveMetadata(self):
+        """
+        """
+
+        return

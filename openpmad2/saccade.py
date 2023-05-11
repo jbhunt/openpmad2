@@ -450,7 +450,8 @@ class DriftingGratingWithFictiveSaccades2():
 
     def _generateMetadata(
         self,
-        nTrialsPerCondition,
+        nTrialsPerConditionPerBlock,
+        nBlocksPerDirection,
         gratingMotion,
         randomizeTrialOrder
         ):
@@ -462,17 +463,19 @@ class DriftingGratingWithFictiveSaccades2():
         }
 
         #
-        for motion, block in zip(gratingMotion, range(len(gratingMotion))):
-            trials = list()
+        motionByBlock = np.tile(gratingMotion, nBlocksPerDirection)
+        np.random.shuffle(motionByBlock)
+        for iBlock, motion in enumerate(motionByBlock):
+            blockMetadata = list()
             for trialType in ('saccade', 'probe', 'combined'):
-                for iTrial in range(nTrialsPerCondition):
-                    trial = (block, motion, trialType)
-                    trials.append(trial)
-            index = np.arange(len(trials))
+                for iTrial_ in range(nTrialsPerConditionPerBlock):
+                    trial = (iBlock, motion, trialType)
+                    blockMetadata.append(trial)
+            index = np.arange(len(blockMetadata))
             if randomizeTrialOrder:
                 index = np.random.choice(index, size=index.size, replace=False)
             for iTrial in index:
-                self.metadata['trials'].append(trials[iTrial])
+                self.metadata['trials'].append(blockMetadata[iTrial])
 
         #
         nTrials = len(self.metadata['trials'])
@@ -533,11 +536,12 @@ class DriftingGratingWithFictiveSaccades2():
 
         #
         iEvent = 0
-        for block, motion_, tt in self.metadata['trials']:
+        currentBlockIndex = 0
+        for blockIndex, motion, tt in self.metadata['trials']:
 
             # Block transition
-            if motion_ != motion:
-                motion = motion_
+            if blockIndex != currentBlockIndex:
+                currentBlockIndex = blockIndex
                 for iFrame in range(int(round(ibi * self.display.fps))):
                     self.display.drawBackground()
                     self.display.flip()
@@ -578,14 +582,14 @@ class DriftingGratingWithFictiveSaccades2():
                 probeOffsetCountdown = 0
                 for iFrame, phase in enumerate(phases):
                     if iFrame == 0:
-                        self.display.signalEvent(1, units='frames')
+                        self.display.signalEvent(2, units='frames')
                         self.metadata['events'][iEvent] = 'saccade onset'
                         iEvent += 1
                     if probeOffsetCountdown == 0 and gabor.contrast != baselineContrast:
                         gabor.contrast = baselineContrast
                     gabor.phase += phase * motion
                     if iFrame == probeLatencyInFrames:
-                        self.display.signalEvent(1, units='frames')
+                        self.display.signalEvent(2, units='frames')
                         self.metadata['events'][iEvent] = 'probe onset'
                         iEvent += 1
                         probeOffsetCountdown = probeDurationInFrames
@@ -619,15 +623,16 @@ class DriftingGratingWithFictiveSaccades2():
 
     def present(
         self,
-        nTrialsPerCondition=1,
+        nTrialsPerConditionPerBlock=1,
+        nBlocksPerDirection=1,
         spatialFrequency=0.15,
         gratingVelocity=12,
         saccadeDurationInFrames=7,
         probeContrast=1,
         baselineContrast=0.5,
-        probeLatencyInFrames=2,
+        probeLatencyInFrames=4,
         probeDurationInFrames=3,
-        saccadeVelocityParams=(300, 1, 0), # Peak, width (SD), and flag for constant velocity
+        saccadeVelocityParams=(200, 1.5, 0), # Peak, width (SD), and flag for constant velocity
         gratingMotion=(-1, 1),
         randomizeTrialOrder=True,
         itiRange=(1, 2),
@@ -639,7 +644,8 @@ class DriftingGratingWithFictiveSaccades2():
         """
 
         self._generateMetadata(
-            nTrialsPerCondition,
+            nTrialsPerConditionPerBlock,
+            nBlocksPerDirection,
             gratingMotion,
             randomizeTrialOrder
         )

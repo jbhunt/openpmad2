@@ -237,15 +237,21 @@ class SparseNoise(bases.StimulusBase):
         """
         """
 
+        #
         sessionFolderPath = pl.Path(sessionFolder)
         if sessionFolderPath.exists() == False:
             sessionFolderPath.mkdir()
 
-        #
-        with open(sessionFolderPath.joinpath('sparseNoiseMetadata.pkl'), 'wb') as stream:
+        # Save the metadata dict
+        filename = generateMetadataFilename(
+            sessionFolderPath,
+            'sparseNoiseMetadata',
+            '.pkl'
+        )
+        with open(filename, 'wb') as stream:
             pickle.dump(self.metadata, stream)
 
-        return    
+        return
 
 class SimpleBinaryNoise(bases.StimulusBase):
     """

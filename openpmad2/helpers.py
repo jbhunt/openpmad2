@@ -40,7 +40,7 @@ def generateMetadataFilename(parent, tag, extension='.pkl'):
 
     existing = list(parent.glob(f'{tag}*'))
     n = len(existing) + 1
-    filename = parent.joinpath(f'{tag}{n}{extension}')
+    filename = parent.joinpath(f'{tag}-{n}{extension}')
     return filename
 
 def estimateFrameCount(t, fps=60, roundingMethod='nearest'):

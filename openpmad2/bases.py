@@ -32,10 +32,13 @@ class StimulusBase():
         if fullFilePath.exists():
             with open(fullFilePath, 'r') as stream:
                 lines = stream.readlines()
-            for lineIndex, line in enumerate(lines):
-                if line == headerBreakLine:
-                    break
-            data = lines[lineIndex + 1:]
+            if len(lines) == 0:
+                pass
+            else:
+                for lineIndex, line in enumerate(lines):
+                    if line == headerBreakLine:
+                        break
+                data = lines[lineIndex + 1:]
 
         #
         stream = open(fullFilePath, 'w')

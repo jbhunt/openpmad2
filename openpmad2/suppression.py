@@ -7,6 +7,7 @@ import numpy as np
 from psychopy import visual
 
 from . import bases
+from myphdlib.general.toolkit import smooth
 
 
 class StateManager():
@@ -517,8 +518,9 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
         self,
         spatialFrequency=0.15,
         velocity=12,
-        baselineContrast=0.4,
-        probeContrast=1,
+        baselineContrast=0.3,
+        probeContrastValues=(1,),
+        probeContrastProbabilities=(1,),
         probeDuration=0.1,
         ipiRange=(0.5, 1),
         itiDuration=5,
@@ -536,7 +538,6 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
             f'Spatial frequency': f'{spatialFrequency} (cycles/degree)',
             f'Velocity': f'{velocity} (degrees/second)',
             f'Baseline contrast': f'{baselineContrast} (0, 1)',
-            f'Probe contrast': f'{probeContrast} (0, 1)'
         }
 
         #
@@ -551,7 +552,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
         )
 
         #
-        self.metadata = np.full([metadataArraySize, 3], np.nan)
+        self.metadata = np.full([metadataArraySize, 4], np.nan)
         trialParameters = np.tile(directions, trialCount)
         np.random.shuffle(trialParameters)
         inIPI = False
@@ -570,7 +571,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
                 gabor.draw()
                 timestamp = self.display.flip()
                 if frameIndex == 0:
-                    self.metadata[eventIndex, :] = (1, direction, timestamp)
+                    self.metadata[eventIndex, :] = (1, direction, gabor.contrast, timestamp)
                     eventIndex += 1
 
             # Motion (buffer) phase
@@ -580,7 +581,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
                 gabor.draw()
                 timestamp = self.display.flip()
                 if frameIndex == 0:
-                    self.metadata[eventIndex, :] = (2, direction, timestamp)
+                    self.metadata[eventIndex, :] = (2, direction, gabor.contrast, timestamp)
                     eventIndex += 1
 
             # Motion phase
@@ -591,7 +592,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
                         inIPI = False
                         countdown = round(self.display.fps * probeDuration)
                         self.display.signalEvent(countdown, units='frames')
-                        gabor.contrast = probeContrast
+                        gabor.contrast = np.random.choice(probeContrastValues, p=probeContrastProbabilities)
                         recordEvent = True
 
                 else:
@@ -609,7 +610,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
                 gabor.draw()
                 timestamp = self.display.flip()
                 if recordEvent:
-                    self.metadata[eventIndex, :] = (3, direction, timestamp)
+                    self.metadata[eventIndex, :] = (3, direction, gabor.contrast, timestamp)
                     eventIndex += 1
                     recordEvent = False
 
@@ -635,7 +636,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
             # ITI period
             # self.display.signalEvent(3, units='frames')
             timestamp = self.display.idle(itiDuration, units='seconds', returnFirstTimestamp=True)
-            self.metadata[eventIndex, :] = (4, direction, timestamp)
+            self.metadata[eventIndex, :] = (4, direction, gabor.contrast, timestamp)
             eventIndex += 1
 
         return
@@ -645,15 +646,16 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
         """
 
         self.header.update({
-            'Columns': 'Event (1=Grating, 2=Motion, 3=Probe, 4=ITI), Motion direction, Timestamp'
+            'Columns': 'Event (1=Grating, 2=Motion, 3=Probe, 4=ITI), Motion direction, Probe contrast, Timestamp'
         })
         stream = super().prepareMetadataStream(sessionFolder, 'driftingGratingMetadata', self.header)
         for array in self.metadata:
             if np.isnan(array).all():
                 continue
-            event, direction, timestamp = array
-            line = f'{event:.0f}, {direction:.0f}, {timestamp:.3f}\n'
+            event, direction, contrast, timestamp = array
+            line = f'{event:.0f}, {direction:.0f}, {contrast:.2f}, {timestamp:.3f}\n'
             stream.write(line)
+        stream.close()
 
         return
 
@@ -665,16 +667,18 @@ class DriftingGratingWithWhiteNoise(bases.StimulusBase):
         self,
         spatialFrequency=0.15,
         velocity=12,
-        contrastRange=(0.4, 1),
-        stepDuration=0.033,
+        contrastRange=(0, 1),
+        stepDuration=0.05,
         motionDirection=(-1, 1),
         trialDuration=3,
         trialCount=1,
         warmupDuration=5,
         itiDuration=5,
-        staticPhaseDuration=3,
-        warmupPhaseDuration=3,
+        staticPhaseDuration=1,
+        warmupPhaseDuration=1,
         defaultMetadataSize=1000000,
+        smoothContrastSequence=False,
+        smoothingWindowSize=5,
         ):
 
         #
@@ -683,6 +687,12 @@ class DriftingGratingWithWhiteNoise(bases.StimulusBase):
             f'Velocity': f'{velocity} (degrees/second)',
         }
         self.metadata = np.full((defaultMetadataSize, 3), np.nan)
+        # self.metadata = {
+        #     'events': np.full((defaultMetadataSize, 3), np.nan),
+        #     'velocity': velocity,
+        #     'frequency': spatialFrequency,
+        #     'interval': stepDuration
+        # }
 
         #
         cpp = spatialFrequency / self.display.ppd # cycles per pixel
@@ -724,11 +734,16 @@ class DriftingGratingWithWhiteNoise(bases.StimulusBase):
                 gabor.draw()
                 self.display.flip()
 
+            # Create the contrast sequence
+            contrastSteps = np.random.uniform(*contrastRange, size=nSteps)
+            if smoothContrastSequence:
+                contrastSteps = smooth(contrastSteps, smoothingWindowSize)
+
             #
             for stepIndex in range(nSteps):
 
                 #
-                gabor.contrast = np.random.uniform(*contrastRange, size=1).item()
+                gabor.contrast = contrastSteps[stepIndex]
                 self.display.state = not self.display.state
 
                 #
@@ -741,7 +756,12 @@ class DriftingGratingWithWhiteNoise(bases.StimulusBase):
                     gabor.phase += cpf * motionDirection
 
             # Return the display patch to a LOW state
-            self.display.state = False
+            if self.display.state:
+                self.display.state = False
+                self.display.drawBackground()
+                timestamp = self.display.flip()
+                self.metadata[eventIndex, :] = (np.nan, np.nan, timestamp)
+                eventIndex += 1
 
             # ITI period
             self.display.idle(itiDuration)

@@ -552,7 +552,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
         )
 
         #
-        self.metadata = np.full([metadataArraySize, 4], np.nan)
+        self.metadata = np.full([metadataArraySize, 5], np.nan)
         trialParameters = np.tile(directions, trialCount)
         np.random.shuffle(trialParameters)
         inIPI = False
@@ -571,7 +571,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
                 gabor.draw()
                 timestamp = self.display.flip()
                 if frameIndex == 0:
-                    self.metadata[eventIndex, :] = (1, direction, gabor.contrast, timestamp)
+                    self.metadata[eventIndex, :] = (1, direction, gabor.contrast, gabor.phase[0], timestamp)
                     eventIndex += 1
 
             # Motion (buffer) phase
@@ -581,7 +581,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
                 gabor.draw()
                 timestamp = self.display.flip()
                 if frameIndex == 0:
-                    self.metadata[eventIndex, :] = (2, direction, gabor.contrast, timestamp)
+                    self.metadata[eventIndex, :] = (2, direction, gabor.contrast, gabor.phase[0], timestamp)
                     eventIndex += 1
 
             # Motion phase
@@ -610,7 +610,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
                 gabor.draw()
                 timestamp = self.display.flip()
                 if recordEvent:
-                    self.metadata[eventIndex, :] = (3, direction, gabor.contrast, timestamp)
+                    self.metadata[eventIndex, :] = (3, direction, gabor.contrast, gabor.phase[0], timestamp)
                     eventIndex += 1
                     recordEvent = False
 
@@ -636,7 +636,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
             # ITI period
             # self.display.signalEvent(3, units='frames')
             timestamp = self.display.idle(itiDuration, units='seconds', returnFirstTimestamp=True)
-            self.metadata[eventIndex, :] = (4, direction, gabor.contrast, timestamp)
+            self.metadata[eventIndex, :] = (4, direction, gabor.contrast, gabor.phase[0], timestamp)
             eventIndex += 1
 
         return
@@ -646,14 +646,14 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
         """
 
         self.header.update({
-            'Columns': 'Event (1=Grating, 2=Motion, 3=Probe, 4=ITI), Motion direction, Probe contrast, Timestamp'
+            'Columns': 'Event (1=Grating, 2=Motion, 3=Probe, 4=ITI), Motion direction, Probe contrast, Probe phase, Timestamp'
         })
         stream = super().prepareMetadataStream(sessionFolder, 'driftingGratingMetadata', self.header)
         for array in self.metadata:
             if np.isnan(array).all():
                 continue
-            event, direction, contrast, timestamp = array
-            line = f'{event:.0f}, {direction:.0f}, {contrast:.2f}, {timestamp:.3f}\n'
+            event, direction, contrast, phase, timestamp = array
+            line = f'{event:.0f}, {direction:.0f}, {contrast:.2f}, {phase:.2f}, {timestamp:.3f}\n'
             stream.write(line)
         stream.close()
 

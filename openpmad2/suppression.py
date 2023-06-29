@@ -528,7 +528,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
         directions=(-1, 1),
         staticPhaseDuration=3,
         motionPhaseDuration=5,
-        bufferPhaseDuration=1,
+        bufferPhaseDuration=5,
         metadataArraySize=100000,
         ):
         """
@@ -566,7 +566,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
         for direction in trialParameters:
 
             # Static phase
-            # self.display.signalEvent(3, units='frames')
+            self.display.signalEvent(15, units='frames')
             for frameIndex in range(round(self.display.fps * staticPhaseDuration)):
                 gabor.draw()
                 timestamp = self.display.flip()
@@ -575,7 +575,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
                     eventIndex += 1
 
             # Motion (buffer) phase
-            # self.display.signalEvent(3, units='frames')
+            self.display.signalEvent(15, units='frames')
             for frameIndex in range(round(self.display.fps * bufferPhaseDuration)):
                 gabor.phase += cpf * direction
                 gabor.draw()
@@ -634,7 +634,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
                     self.display.flip()
 
             # ITI period
-            # self.display.signalEvent(3, units='frames')
+            self.display.signalEvent(15, units='frames')
             timestamp = self.display.idle(itiDuration, units='seconds', returnFirstTimestamp=True)
             self.metadata[eventIndex, :] = (4, direction, gabor.contrast, gabor.phase[0], timestamp)
             eventIndex += 1

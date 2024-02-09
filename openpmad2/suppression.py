@@ -517,6 +517,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
     def present(
         self,
         spatialFrequency=0.15,
+        orientation=0,
         velocity=12,
         baselineContrast=0.3,
         probeContrastValues=(1,),
@@ -549,6 +550,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
             units='pix',
             sf=cpp,
             contrast=baselineContrast,
+            ori=orientation
         )
 
         #

@@ -538,6 +538,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
         self.header = {
             f'Spatial frequency': f'{spatialFrequency} (cycles/degree)',
             f'Velocity': f'{velocity} (degrees/second)',
+            f'Orientation': f'{orientation} (degrees)',
             f'Baseline contrast': f'{baselineContrast} (0, 1)',
         }
 
@@ -650,14 +651,19 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
         self.header.update({
             'Columns': 'Event (1=Grating, 2=Motion, 3=Probe, 4=ITI), Motion direction, Probe contrast, Probe phase, Timestamp'
         })
-        stream = super().prepareMetadataStream(sessionFolder, 'driftingGratingMetadata', self.header)
-        for array in self.metadata:
-            if np.isnan(array).all():
-                continue
-            event, direction, contrast, phase, timestamp = array
-            line = f'{event:.0f}, {direction:.0f}, {contrast:.2f}, {phase:.2f}, {timestamp:.3f}\n'
-            stream.write(line)
-        stream.close()
+        for i in range(100):
+            filename = sessionFolder.joinpath(f'driftingGratingMetadata-{int(i)}.txt')
+            if filename.exists() == False:
+                with open(str(filename), 'w') as stream:
+                    for k, v in self.header.items():
+                        line = f'{k}: {v}\n'
+                        stream.write(line)
+                    for array in self.metadata:
+                        if np.isnan(array).all():
+                            continue
+                        event, direction, contrast, phase, timestamp = array
+                        line = f'{event:.0f}, {direction:.0f}, {contrast:.2f}, {phase:.2f}, {timestamp:.3f}\n'
+                        stream.write(line)
 
         return
 

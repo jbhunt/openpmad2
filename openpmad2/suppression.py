@@ -546,7 +546,7 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
         cpf = spatialFrequency * velocity / self.display.fps
         gabor = visual.GratingStim(
             self.display,
-            size=self.display.size,
+            size=(self.display.width, self.display.width),
             units='pix',
             sf=cpp,
             contrast=baselineContrast,

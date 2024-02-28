@@ -648,11 +648,16 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
         """
         """
 
+        sessionFolderPath = pl.Path(sessionFolder)
+        if sessionFolderPath.exists() == False:
+            sessionFolderPath.mkdir()
+
         self.header.update({
             'Columns': 'Event (1=Grating, 2=Motion, 3=Probe, 4=ITI), Motion direction, Probe contrast, Probe phase, Timestamp'
         })
-        for i in range(100):
-            filename = sessionFolder.joinpath(f'driftingGratingMetadata-{int(i)}.txt')
+        n = 0
+        while True:
+            filename = sessionFolderPath.joinpath(f'driftingGratingMetadata-{int(n)}.txt')
             if filename.exists() == False:
                 with open(str(filename), 'w') as stream:
                     for k, v in self.header.items():
@@ -664,6 +669,8 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
                         event, direction, contrast, phase, timestamp = array
                         line = f'{event:.0f}, {direction:.0f}, {contrast:.2f}, {phase:.2f}, {timestamp:.3f}\n'
                         stream.write(line)
+                break
+            n += 1
 
         return
 

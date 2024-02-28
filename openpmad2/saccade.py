@@ -678,8 +678,10 @@ class DriftingGratingWithFictiveSaccades2():
         #
         index = np.array([len(element.item()) > 0 for element in self.metadata['events']])
         self.metadata['events'] = self.metadata['events'][index, :]
-
-        with open(sessionFolderPath.joinpath('fictiveSaccadeMetadata.pkl'), 'wb') as stream:
-            pickle.dump(self.metadata, stream)
+        for i in np.arange(100):
+            filename = sessionFolderPath.joinpath(f'fictiveSaccadeMetadata-{int(i)}.pkl')
+            if filename.exists() == False:
+                with open(sessionFolderPath.joinpath('fictiveSaccadeMetadata.pkl'), 'wb') as stream:
+                    pickle.dump(self.metadata, stream)
 
         return

@@ -399,8 +399,17 @@ class DriftingGratingWithFictiveSaccades():
         if sessionFolderPath.exists() == False:
             sessionFolderPath.mkdir()
 
-        with open(sessionFolderPath.joinpath('fictiveSaccadeMetadata.pkl'), 'wb') as stream:
-            pickle.dump(self.metadata, stream)
+        #
+        index = np.array([len(element.item()) > 0 for element in self.metadata['events']])
+        self.metadata['events'] = self.metadata['events'][index, :]
+        n = 0
+        while True:
+            filename = sessionFolderPath.joinpath(f'fictiveSaccadeMetadata-{int(n)}.pkl')
+            if filename.exists() == False:
+                with open(str(filename), 'wb') as stream:
+                    pickle.dump(self.metadata, stream)
+                break
+            n += 1
 
         return
 
@@ -678,8 +687,13 @@ class DriftingGratingWithFictiveSaccades2():
         #
         index = np.array([len(element.item()) > 0 for element in self.metadata['events']])
         self.metadata['events'] = self.metadata['events'][index, :]
-
-        with open(sessionFolderPath.joinpath('fictiveSaccadeMetadata.pkl'), 'wb') as stream:
-            pickle.dump(self.metadata, stream)
+        n = 0
+        while True:
+            filename = sessionFolderPath.joinpath(f'fictiveSaccadeMetadata-{int(n)}.pkl')
+            if filename.exists() == False:
+                with open(str(filename), 'wb') as stream:
+                    pickle.dump(self.metadata, stream)
+                break
+            n += 1
 
         return

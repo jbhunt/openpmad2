@@ -557,7 +557,9 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
         #
         self.metadata = np.full([metadataArraySize, 5], np.nan)
         trialParameters = np.tile(directions, trialCount)
-        np.random.shuffle(trialParameters)
+        # np.random.shuffle(trialParameters)
+        trialIndices = np.arange(len(trialParameters))
+        np.random.shuffle(trialIndices)
         inIPI = False
         recordEvent = False
         eventIndex = 0
@@ -565,8 +567,8 @@ class DriftingGratingWithRandomProbe(bases.StimulusBase):
 
         #
         self.display.idle(itiDuration, units='seconds')
-
-        for direction in trialParameters:
+        for direction in trialParameters[trialIndices]:
+            print(direction)
 
             # Static phase
             self.display.signalEvent(15, units='frames')
